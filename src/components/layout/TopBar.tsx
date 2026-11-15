@@ -128,11 +128,29 @@ function SelectorDropdown({
   );
 }
 
-function TopBarFallback() {
+function MobileBrand({ onOpenMenu }: { onOpenMenu: () => void }) {
   const { tr } = useTranslation();
   return (
-    <header className="h-[78px] bg-[var(--color-sidebar)] px-6 flex items-center justify-between gap-4 shrink-0">
-      <div className="relative w-[320px] shrink-0">
+    <div className="flex min-w-0 items-center gap-2 lg:hidden">
+      <button
+        type="button"
+        onClick={onOpenMenu}
+        aria-label={tr("Buka navigasi", "Open navigation")}
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-[var(--color-sidebar-foreground)] hover:bg-white/10"
+      >
+        <span className="material-symbols-outlined">menu</span>
+      </button>
+      <span className="truncate text-sm font-semibold tracking-wide text-[var(--color-sidebar-foreground)]">AGNIBHUMI</span>
+    </div>
+  );
+}
+
+function TopBarFallback({ onOpenMenu }: { onOpenMenu: () => void }) {
+  const { tr } = useTranslation();
+  return (
+    <header className="h-[64px] lg:h-[78px] bg-[var(--color-sidebar)] px-3 sm:px-6 flex items-center justify-between gap-3 shrink-0">
+      <MobileBrand onOpenMenu={onOpenMenu} />
+      <div className="relative hidden w-[min(320px,36vw)] shrink-0 md:block">
         <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-base">
           search
         </span>
@@ -145,10 +163,10 @@ function TopBarFallback() {
       </div>
       <div className="hidden lg:flex items-center gap-3 flex-1" />
       <div className="flex items-center gap-4 shrink-0">
-        <span className="material-symbols-outlined text-[20px] text-[var(--color-sidebar-foreground)]/80">
+        <span className="hidden material-symbols-outlined text-[20px] text-[var(--color-sidebar-foreground)]/80 sm:inline">
           notifications
         </span>
-        <div className="flex items-center gap-3 border-l border-white/[0.12] pl-4">
+        <div className="hidden items-center gap-3 border-l border-white/[0.12] pl-4 sm:flex">
           <div className="w-8 h-8 rounded-full bg-white/[0.26] text-[var(--color-sidebar-foreground)] flex items-center justify-center text-xs font-semibold shrink-0">
             MA
           </div>
@@ -162,7 +180,7 @@ function TopBarFallback() {
   );
 }
 
-function TopBarInner() {
+function TopBarInner({ onOpenMenu }: { onOpenMenu: () => void }) {
   const { tr, language } = useTranslation();
   const router = useRouter();
   const pathname = usePathname();
@@ -183,9 +201,10 @@ function TopBarInner() {
   }
 
   return (
-    <header className="h-[78px] bg-[var(--color-sidebar)] px-6 flex items-center justify-between gap-4 shrink-0">
+    <header className="h-[64px] lg:h-[78px] bg-[var(--color-sidebar)] px-3 sm:px-6 flex items-center justify-between gap-3 lg:gap-4 shrink-0">
+      <MobileBrand onOpenMenu={onOpenMenu} />
       {/* Search — not yet wired to filtering logic */}
-      <div className="relative w-[320px] shrink-0">
+      <div className="relative hidden w-[min(320px,36vw)] shrink-0 md:block">
         <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-base">
           search
         </span>
@@ -227,10 +246,10 @@ function TopBarInner() {
       {/* Right actions */}
       <div className="flex items-center gap-4 shrink-0">
         <LanguageToggle className="!text-[var(--color-sidebar-foreground)]/80 !border-white/20 hover:!bg-white/10" />
-        <button type="button" aria-label={tr("Notifikasi", "Notifications")} className="text-[var(--color-sidebar-foreground)]/80 hover:text-[var(--color-sidebar-foreground)]">
+        <button type="button" aria-label={tr("Notifikasi", "Notifications")} className="hidden text-[var(--color-sidebar-foreground)]/80 hover:text-[var(--color-sidebar-foreground)] sm:block">
           <span className="material-symbols-outlined text-[20px]">notifications</span>
         </button>
-        <div className="flex items-center gap-3 border-l border-white/[0.12] pl-4">
+        <div className="hidden items-center gap-3 border-l border-white/[0.12] pl-4 sm:flex">
           <div className="w-8 h-8 rounded-full bg-white/[0.26] text-[var(--color-sidebar-foreground)] flex items-center justify-center text-xs font-semibold shrink-0">
             MA
           </div>
@@ -244,13 +263,13 @@ function TopBarInner() {
   );
 }
 
-export default function TopBar() {
+export default function TopBar({ onOpenMenu }: { onOpenMenu: () => void }) {
   // Suspense boundary lives here (not in each route) so every page that mounts TopBar via
   // WorkstationLayout — including routes this task doesn't touch — stays buildable without
   // needing its own Suspense wrapper just because TopBar now reads useSearchParams().
   return (
-    <Suspense fallback={<TopBarFallback />}>
-      <TopBarInner />
+    <Suspense fallback={<TopBarFallback onOpenMenu={onOpenMenu} />}>
+      <TopBarInner onOpenMenu={onOpenMenu} />
     </Suspense>
   );
 }

@@ -16,6 +16,7 @@ function OfficerLoginForm() {
   const { tr } = useTranslation();
   const searchParams = useSearchParams();
   const next = safeNext(searchParams.get("next"));
+  const [displayName, setDisplayName] = useState("");
   const [passcode, setPasscode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +29,7 @@ function OfficerLoginForm() {
       const response = await fetch("/api/officer/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ passcode }),
+        body: JSON.stringify({ displayName, passcode }),
       });
       if (response.ok) {
         window.location.assign(next);
@@ -36,6 +37,7 @@ function OfficerLoginForm() {
       }
       const body = (await response.json().catch(() => ({}))) as { code?: string };
       if (body.code === "WRONG_PASSCODE") setError(tr("Kode akses salah.", "Wrong access code."));
+      else if (body.code === "INVALID_DISPLAY_NAME") setError(tr("Nama petugas harus 2–80 karakter.", "Officer name must be 2-80 characters."));
       else if (body.code === "TOO_MANY_ATTEMPTS") setError(tr("Terlalu banyak percobaan. Coba lagi beberapa menit lagi.", "Too many attempts. Try again in a few minutes."));
       else if (body.code === "OFFICER_AUTH_DISABLED")
         setError(tr("Login petugas belum diaktifkan di server (OFFICER_ACCESS_KEY belum diisi).", "Officer sign-in is not enabled on the server (OFFICER_ACCESS_KEY is not set)."));
@@ -54,10 +56,27 @@ function OfficerLoginForm() {
         <h1 className="text-xl font-bold text-gray-900">{tr("Masuk sebagai petugas", "Sign in as officer")}</h1>
         <p className="text-xs leading-relaxed text-gray-500">
           {tr(
-            "Untuk meninjau laporan warga. Kode akses dibagikan oleh koordinator tim. Data satelit di dasbor tetap bisa dilihat tanpa masuk.",
-            "For reviewing citizen reports. The access code is shared by your team coordinator. Satellite data on the dashboard stays visible without signing in."
+            "Untuk meninjau laporan dan menjalankan operasi lapangan. Nama Anda dicatat di histori perubahan; kode akses dibagikan oleh koordinator tim.",
+            "For reviewing reports and managing field operations. Your name is recorded in the change history; the access code is shared by your team coordinator."
           )}
         </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <label htmlFor="displayName" className="text-xs font-semibold text-gray-700">
+          {tr("Nama petugas", "Officer name")}
+        </label>
+        <input
+          id="displayName"
+          type="text"
+          autoComplete="name"
+          minLength={2}
+          maxLength={80}
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          required
+          className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm focus:border-[#075640] focus:outline-none focus:ring-2 focus:ring-[#075640]/20"
+        />
       </div>
 
       <div className="space-y-1.5">
@@ -83,7 +102,7 @@ function OfficerLoginForm() {
 
       <button
         type="submit"
-        disabled={submitting || !passcode}
+        disabled={submitting || !passcode || displayName.trim().length < 2}
         className="w-full rounded-xl bg-[#075640] py-2.5 text-sm font-bold text-white transition hover:bg-[#06442f] disabled:opacity-50"
       >
         {submitting ? tr("Memeriksa…", "Checking…") : tr("Masuk", "Sign in")}

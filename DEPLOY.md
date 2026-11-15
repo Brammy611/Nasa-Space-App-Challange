@@ -54,10 +54,12 @@ Render membangun image dari Git, jadi kedua file harus ikut ter-commit. Pilihan:
 - `/community` → atur lokasi dengan mencari nama kecamatan → status, titik terdekat, filter searah angin.
 - `/community/report` → kirim laporan uji → buka `/citizen-reports` → diarahkan ke `/officer-login` → masuk dengan `OFFICER_ACCESS_KEY` → laporan muncul.
 - Ubah status laporan uji ke **Terverifikasi** → laporan muncul di "Laporan warga terdekat" di `/community` dengan lokasi dibulatkan, tanpa foto.
+- `/incidents` → tambahkan satu tim → buka insiden dari laporan uji atau kandidat satelit → simpan verifikasi, prioritas, penugasan, dan progres dengan alasan → pastikan timeline dan notifikasi bertambah.
+- Muat ulang `/incidents` dan restart backend satu kali → insiden/tim/timeline tetap ada di Render Disk yang sama dengan `reports.sqlite`.
 
 ## Keterbatasan yang harus disebut ke juri
 - **Laporan warga disimpan di SQLite pada Render Disk.** Cukup untuk demo; untuk produksi sebaiknya Postgres hosted dan object storage untuk foto.
-- **Login petugas memakai satu kode akses bersama**, bukan akun per orang, jadi belum ada jejak siapa yang mengubah status.
+- **Login petugas memakai satu kode akses bersama**, bukan akun per orang. Timeline insiden mencatat nama sesi yang ditandatangani, tetapi nama itu masih deklarasi petugas saat login.
 - **Suomi-NPP berhenti mengirim data VIIRS baru per 2 Nov 2026**; pipeline live tetap jalan dengan NOAA-20/21.
 
 ## Uji image Docker secara lokal

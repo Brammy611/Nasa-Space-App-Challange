@@ -1,4 +1,11 @@
-import { OFFICER_COOKIE, OFFICER_SESSION_MAX_AGE_S, isValidPasscode, officerAuthConfigured, officerSessionValue } from "@/lib/officerAuth";
+import {
+  OFFICER_COOKIE,
+  OFFICER_SESSION_MAX_AGE_S,
+  isValidPasscode,
+  normalizeOfficerName,
+  officerAuthConfigured,
+  officerSessionValue,
+} from "@/lib/officerAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -29,8 +36,11 @@ export async function POST(request: Request) {
   }
 
   let passcode: unknown;
+  let displayName: unknown;
   try {
-    passcode = ((await request.json()) as { passcode?: unknown }).passcode;
+    const body = (await request.json()) as { passcode?: unknown; displayName?: unknown };
+    passcode = body.passcode;
+    displayName = body.displayName;
   } catch {
     return Response.json({ error: "Invalid JSON body.", code: "INVALID_BODY" }, { status: 400 });
   }
@@ -39,8 +49,16 @@ export async function POST(request: Request) {
     return Response.json({ error: "Wrong passcode.", code: "WRONG_PASSCODE" }, { status: 401 });
   }
 
+  const officerName = normalizeOfficerName(displayName);
+  if (!officerName) {
+    return Response.json(
+      { error: "Officer name must be 2-80 characters.", code: "INVALID_DISPLAY_NAME" },
+      { status: 422 }
+    );
+  }
+
   const cookie = [
-    `${OFFICER_COOKIE}=${officerSessionValue()}`,
+    `${OFFICER_COOKIE}=${officerSessionValue(officerName)}`,
     "Path=/",
     "HttpOnly",
     "SameSite=Lax",

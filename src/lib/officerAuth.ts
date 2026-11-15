@@ -6,8 +6,10 @@ import { createHmac, timingSafeEqual } from "node:crypto";
  * (Render). No user accounts.
  *
  * - The browser never sees the key. After a correct passcode,
- *   /api/officer/login sets an httpOnly cookie holding an HMAC derived from
- *   the key, so the cookie is useless if the key is rotated.
+ *   /api/officer/login sets an httpOnly, HMAC-signed identity cookie, so the
+ *   officer's display name can be written to the incident audit timeline
+ *   without trusting a client-controlled header. Rotating the key invalidates
+ *   every cookie.
  * - Server-side route handlers that proxy officer-only backend endpoints
  *   check that cookie and, only then, attach the real key as X-Officer-Key.
  * - Fails closed: with OFFICER_ACCESS_KEY unset, nobody can sign in.
@@ -28,11 +30,27 @@ export function officerAuthConfigured(): boolean {
   return officerKey() !== null;
 }
 
-/** The value stored in the officer cookie, or null when auth is not configured. */
-export function officerSessionValue(): string | null {
+function legacySessionValue(key: string): string {
+  return createHmac("sha256", key).update("agnibhumi-officer-session-v1").digest("hex");
+}
+
+function signIdentity(key: string, payload: string): string {
+  return createHmac("sha256", key).update(`agnibhumi-officer-session-v2:${payload}`).digest("base64url");
+}
+
+export function normalizeOfficerName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const name = value.trim().replace(/\s+/g, " ");
+  return name.length >= 2 && name.length <= 80 ? name : null;
+}
+
+/** The signed value stored in the officer cookie, or null when auth is not configured. */
+export function officerSessionValue(displayName = "Petugas"): string | null {
   const key = officerKey();
   if (!key) return null;
-  return createHmac("sha256", key).update("agnibhumi-officer-session-v1").digest("hex");
+  const name = normalizeOfficerName(displayName) ?? "Petugas";
+  const payload = Buffer.from(JSON.stringify({ name }), "utf8").toString("base64url");
+  return `v2.${payload}.${signIdentity(key, payload)}`;
 }
 
 function safeEqual(a: string, b: string): boolean {
@@ -47,8 +65,26 @@ export function isValidPasscode(passcode: unknown): boolean {
 }
 
 export function isValidOfficerCookie(value: string | undefined | null): boolean {
-  const expected = officerSessionValue();
-  return Boolean(value) && expected !== null && safeEqual(value as string, expected);
+  return readOfficerIdentity(value) !== null;
+}
+
+export function readOfficerIdentity(value: string | undefined | null): { displayName: string } | null {
+  const key = officerKey();
+  if (!key || !value) return null;
+
+  // Existing cookies stay valid for one rotation cycle after this deployment.
+  if (safeEqual(value, legacySessionValue(key))) return { displayName: "Petugas" };
+
+  const [version, payload, signature, ...rest] = value.split(".");
+  if (version !== "v2" || !payload || !signature || rest.length > 0) return null;
+  if (!safeEqual(signature, signIdentity(key, payload))) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { name?: unknown };
+    const displayName = normalizeOfficerName(parsed.name);
+    return displayName ? { displayName } : null;
+  } catch {
+    return null;
+  }
 }
 
 function readCookie(request: Request, name: string): string | null {
@@ -73,7 +109,11 @@ export function isOfficerRequest(request: Request): boolean {
 export function backendHeaders(request: Request, extra: Record<string, string> = {}): Record<string, string> {
   const headers: Record<string, string> = { ...extra };
   const key = officerKey();
-  if (key && isOfficerRequest(request)) headers["X-Officer-Key"] = key;
+  const identity = readOfficerIdentity(readCookie(request, OFFICER_COOKIE));
+  if (key && identity) {
+    headers["X-Officer-Key"] = key;
+    headers["X-Officer-Name"] = identity.displayName;
+  }
   const forwarded = request.headers.get("x-forwarded-for") ?? request.headers.get("x-real-ip");
   if (forwarded) headers["X-Forwarded-For"] = forwarded;
   return headers;

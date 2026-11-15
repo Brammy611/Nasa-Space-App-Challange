@@ -31,11 +31,9 @@ import { useTranslation } from "@/lib/i18n/LanguageContext";
  * asset was provided), so the brand mark below reuses this app's existing flame icon treatment
  * instead of fabricating an image asset that doesn't exist.
  *
- * "Citizen Reports" -> "/citizen-reports" was added separately (not part of the Figma sidebar
- * instance above): it's the officer-side validation dashboard for the "Citizen / Community
- * Report" screen (Figma node 169:16247), a demo-data-only page since that feature has no backend
- * yet. Placed in the primary group since it's an operational workflow screen like Dashboard /
- * Explore Map, not a reference/database screen.
+ * "Citizen Reports" and "Incident Operations" were added separately (not part of the Figma
+ * sidebar instance above). They expose the live officer workflow: review citizen evidence,
+ * create incidents, verify, prioritize, assign and track field response.
  */
 // The burning activity calendar is the core of the Space Apps brief, so it leads the menu.
 const PRIMARY_LINKS = [
@@ -43,6 +41,7 @@ const PRIMARY_LINKS = [
   { label: "Dashboard", labelId: "Dasbor", icon: "dashboard", href: "/operator" },
   { label: "Explore Map", labelId: "Jelajahi Peta", icon: "map", href: "/map" },
   { label: "Citizen Reports", labelId: "Laporan Warga", icon: "forum", href: "/citizen-reports" },
+  { label: "Incident Operations", labelId: "Operasi Insiden", icon: "emergency_home", href: "/incidents" },
 ];
 
 const DATABASE_LINKS = [
@@ -93,20 +92,31 @@ function SidebarNavFallback({ links }: { links: typeof PRIMARY_LINKS }) {
   );
 }
 
-export default function Sidebar() {
+export default function Sidebar({ mobileOpen = false, onClose }: { mobileOpen?: boolean; onClose?: () => void }) {
   const { tr } = useTranslation();
 
   return (
-    <aside className="w-[230px] bg-[var(--color-sidebar)] flex flex-col justify-between h-full shrink-0 overflow-y-auto custom-scroll">
+    <aside
+      aria-label={tr("Navigasi operator", "Operator navigation")}
+      className={`${mobileOpen ? "fixed inset-y-0 left-0 z-[1600] flex shadow-2xl" : "hidden"} w-[260px] bg-[var(--color-sidebar)] flex-col justify-between h-full shrink-0 overflow-y-auto custom-scroll lg:static lg:z-auto lg:flex lg:w-[230px] lg:shadow-none`}
+    >
       <div className="flex flex-col gap-5">
         {/* Logo */}
         <div className="flex items-center gap-2 h-[72px] px-7 border-b border-white/[0.12]">
           <span className="material-symbols-outlined text-[22px] text-[var(--color-sidebar-foreground)]">
             local_fire_department
           </span>
-          <span className="font-medium text-xl text-[var(--color-sidebar-foreground)] tracking-tight">
+          <span className="flex-1 font-medium text-xl text-[var(--color-sidebar-foreground)] tracking-tight">
             AGNIBHUMI
           </span>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={tr("Tutup navigasi", "Close navigation")}
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--color-sidebar-foreground)]/80 hover:bg-white/10 lg:hidden"
+          >
+            <span className="material-symbols-outlined text-[20px]">close</span>
+          </button>
         </div>
 
         <div className="flex flex-col gap-5">

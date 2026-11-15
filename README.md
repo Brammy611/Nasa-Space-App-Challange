@@ -90,7 +90,19 @@ Aturan privasi laporan:
 - Foto hanya bisa dibuka pelapor dan petugas. Setiap foto dibuat ulang menjadi JPEG baru di backend, sehingga metadata EXIF (termasuk lokasi GPS kamera) terbuang.
 - Satu browser atau satu IP maksimal 5 laporan per 10 menit (`REPORT_RATE_LIMIT`, `REPORT_RATE_WINDOW_S`).
 
-### 5. Status wilayah untuk warga
+### 5. Operasi insiden
+
+`/incidents` mengisi alur operasional yang sebelumnya belum ada di FireWatch. Petugas dapat membuka insiden dari deteksi satelit atau laporan warga, lalu menjalankan empat keputusan yang terpisah:
+- verifikasi manusia (`confirmed`, `not_confirmed`, atau perlu informasi);
+- prioritas manual (kritis/tinggi/sedang/rendah);
+- penugasan tim lapangan;
+- progres dari penelaahan sampai selesai atau dibatalkan.
+
+Severity dan FRP satelit disimpan sebagai konteks sumber, tetapi **tidak pernah otomatis menjadi verifikasi atau prioritas**. Setiap perubahan wajib menyertakan alasan minimal 10 karakter, memakai versi baris untuk mencegah petugas menimpa perubahan petugas lain, dan masuk ke timeline yang tidak dapat diedit. Penugasan, prioritas tinggi/kritis, dan perubahan progres juga membuat notifikasi operasional.
+
+Insiden, tim, timeline, dan notifikasi disimpan di database persisten yang sama dengan laporan warga (`reports.sqlite`), sehingga konfigurasi Render Disk yang sudah ada langsung melindungi data workflow ini.
+
+### 6. Status wilayah untuk warga
 
 Beranda Community menampilkan status Aman / Waspada / Siaga / Awas untuk lokasi warga. Statusnya diambil dari faktor yang tingkatnya paling tinggi:
 - jarak ke titik panas terdekat;
@@ -100,7 +112,7 @@ Beranda Community menampilkan status Aman / Waspada / Siaga / Awas untuk lokasi 
 
 Faktor penentunya selalu ditulis di bawah status. Kami menambahkan faktor kualitas udara setelah menemukan kasus di Kec. Maliku: titik panas terdekat 14,9 km sehingga status menyatakan "Aman", padahal AQI di sana 525.
 
-### 6. Edukasi
+### 7. Edukasi
 
 `/community/edukasi` berisi:
 - checklist tas siaga;
@@ -108,7 +120,7 @@ Faktor penentunya selalu ditulis di bawah status. Kami menambahkan faktor kualit
 - 6 skenario latihan "apa yang harus saya lakukan";
 - halaman fakta dengan daftar pustaka.
 
-### 7. Dua bahasa
+### 8. Dua bahasa
 
 Semua halaman bisa diganti ke bahasa Indonesia atau Inggris.
 
@@ -160,13 +172,13 @@ Arsip FIRMS 2000–2026 (offline)      ──┼──► FastAPI (python-servic
 Batas wilayah BPS via OCHA (offline) ──┘     fire_pipeline/
                                               ├─ historical.sqlite  (arsip, read-only)
                                               ├─ admin_boundaries.sqlite (read-only)
-                                              └─ reports.sqlite     (laporan warga, read-write)
+                                              └─ reports.sqlite     (laporan warga + operasi, read-write)
 ```
 
 - **Frontend:** Next.js App Router, React, TypeScript, Tailwind, Leaflet.
 - **Backend:** Python 3.12, FastAPI, pandas, numpy, shapely.
 - **Penyimpanan:** SQLite saja. Kami sengaja tidak menambah layanan berbayar.
-- **Login petugas:** satu kode akses bersama (`OFFICER_ACCESS_KEY`), disetel sama di Vercel dan Render. Setelah masuk di `/officer-login`, browser menyimpan cookie HttpOnly; route `/api/*` lalu meneruskan kode itu ke backend sebagai header `X-Officer-Key`. Halaman `/citizen-reports` dan endpoint yang membuka data pelapor (`GET /api/reports` lengkap, `PATCH`, foto) hanya untuk petugas. Kalau `OFFICER_ACCESS_KEY` kosong, tidak ada yang bisa masuk. Halaman data satelit (`/operator`, `/calendar`, `/map`, dan lain-lain) tetap terbuka karena datanya publik.
+- **Login petugas:** satu kode akses bersama (`OFFICER_ACCESS_KEY`), disetel sama di Vercel dan Render. Petugas juga mengisi nama; nama itu ditandatangani di cookie HttpOnly dan diteruskan ke backend sebagai label aktor pada timeline insiden. Halaman `/citizen-reports`, `/incidents`, dan API privat memeriksa cookie di frontend serta `X-Officer-Key` di backend. Kalau kunci kosong, tidak ada yang bisa masuk. Halaman data satelit tetap publik.
 - **Identitas pelapor:** token acak yang disimpan di browser, bukan akun.
 
 ## API backend
@@ -187,6 +199,10 @@ Batas wilayah BPS via OCHA (offline) ──┘     fire_pipeline/
 | `GET /api/reports/{id}` | Lengkap untuk pelapor/petugas; bentuk publik untuk laporan terverifikasi; 404 untuk yang lain |
 | `PATCH /api/reports/{id}` | Ubah status, petugas saja |
 | `GET /api/reports/{id}/photo` | Foto, pelapor dan petugas saja |
+| `GET`, `POST /api/operations/incidents` | Antrean insiden dan pembuatan insiden dari satelit/laporan warga, petugas saja |
+| `GET`, `PATCH /api/operations/incidents/{id}` | Detail + timeline, serta verifikasi/prioritas/assignment/progres dengan optimistic locking |
+| `GET`, `POST /api/operations/teams` | Daftar dan pembuatan tim lapangan |
+| `GET /api/operations/notifications` | Notifikasi perubahan operasional terbaru |
 
 Dokumentasi Swagger tersedia di `http://127.0.0.1:8000/docs` saat backend berjalan.
 
@@ -243,7 +259,7 @@ Kalau file ini tidak ada, aplikasi tetap jalan dan lokasi ditampilkan sebagai ko
 ### Test
 
 ```bash
-cd python-service && .venv/bin/python -m pytest          # 130 test produksi
+cd python-service && .venv/bin/python -m pytest          # 138 test produksi
 .venv/bin/python -m pytest ml_experiments                # 22 test riset (terpisah dari produksi)
 cd .. && npm run lint && npm run build
 ```
@@ -254,7 +270,7 @@ Panduan deploy (Render + Vercel, Docker) ada di [DEPLOY.md](DEPLOY.md).
 
 ```text
 src/app/                  halaman Operator (calendar, operator, map, analytics, priority-areas,
-                          citizen-reports, data-model) dan Community (community/*)
+                          citizen-reports, incidents, data-model) dan Community (community/*)
 src/components/map/       FireMap (★ MODIS, ⬡ VIIRS, 🔥 terharmonisasi, 👤 laporan warga),
                           AoiDrawMap (gambar area sendiri)
 src/lib/                  filter wilayah & waktu, hook data live, i18n,
@@ -262,7 +278,7 @@ src/lib/                  filter wilayah & waktu, hook data live, i18n,
                           aoiPolygon (area gambar sendiri)
 python-service/
   fire_pipeline/          clean, matching, harmonize_events, features, model, live,
-                          historical, live_calendar, reports, correlation, weather, admin_lookup
+                          historical, live_calendar, reports, operations, correlation, weather, admin_lookup
   scripts/                build_historical_store.py, build_admin_boundaries.py
   ml_experiments/         riset terpisah: anomaly_detection/, matching_audit/, audit_2026_10/
   tests/                  test produksi
@@ -282,7 +298,7 @@ python-service/
 - **Tanggal di arsip memakai UTC,** bukan WIB.
 - **Skor prioritas belum divalidasi** bersama Manggala Agni atau BPBD.
 - **Kualitas udara memakai US AQI, bukan ISPU Indonesia.** Ambang batas kedua skala berbeda.
-- **Login petugas masih satu kode bersama,** belum akun per orang, jadi belum tercatat siapa yang mengubah status. `reports.sqlite` akan hilang kalau dijalankan di server tanpa disk tetap (`render.yaml` sudah memasang Render Disk).
+- **Login petugas masih satu kode bersama,** belum akun dan kredensial per orang. Timeline insiden mencatat nama dari sesi yang cookie-nya ditandatangani, tetapi nama itu tetap deklarasi petugas saat login—bukan identitas yang diverifikasi oleh akun individual. `reports.sqlite` akan hilang kalau dijalankan di server tanpa disk tetap (`render.yaml` sudah memasang Render Disk).
 - **Token pelapor ada di URL foto** (`?submitterToken=`), karena tag `<img>` tidak bisa mengirim header. Token itu hanya membuka laporan milik pelapor sendiri.
 - **Peringatan dini belum dikirim sebagai push notification.** Halaman Notifikasi baru menyaring data saat aplikasi dibuka.
 

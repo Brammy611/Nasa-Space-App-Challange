@@ -371,3 +371,70 @@ export interface WeatherResponse {
   source: string;
   errors: string[];
 }
+
+export type IncidentSourceType = "satellite" | "citizen" | "manual";
+export type IncidentVerification = "unassessed" | "confirmed" | "not_confirmed" | "needs_more_information";
+export type IncidentPriority = "unassessed" | "critical" | "high" | "medium" | "low";
+export type IncidentStatus = "new" | "triaging" | "assigned" | "in_progress" | "monitoring" | "resolved" | "cancelled";
+
+export interface IncidentTimelineItem {
+  id: string;
+  action: "created" | "verification" | "priority" | "assignment" | "status";
+  actor: string;
+  reason: string;
+  oldValue: string | null;
+  newValue: string | null;
+  createdAt: string;
+}
+
+export interface OperationIncident {
+  id: string;
+  reference: string;
+  sourceType: IncidentSourceType;
+  sourceId: string | null;
+  sourceSnapshot: Record<string, unknown>;
+  title: string;
+  description: string;
+  lat: number;
+  lon: number;
+  adminLabel: string | null;
+  verification: IncidentVerification;
+  priority: IncidentPriority;
+  status: IncidentStatus;
+  assignedTeamId: string | null;
+  assignedTeamName: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  rowVersion: number;
+  timeline?: IncidentTimelineItem[];
+}
+
+export interface OperationTeam {
+  id: string;
+  name: string;
+  area: string;
+  leadName: string;
+  contact: string | null;
+  availability: "available" | "busy" | "unavailable" | "unknown";
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OperationNotification {
+  id: string;
+  incidentId: string | null;
+  reference: string | null;
+  teamId: string | null;
+  teamName: string | null;
+  message: string;
+  createdAt: string;
+}
+
+export interface IncidentSummary {
+  total: number;
+  open: number;
+  criticalHigh: number;
+  unassigned: number;
+}
