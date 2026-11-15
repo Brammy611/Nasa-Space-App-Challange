@@ -6,6 +6,6 @@ python-service/data/
 python-service/ml_experiments/
 python-service/.pytest_cache/
 python-service/tests/
-supabase/
-test-results/
-tests/
+/supabase/
+/test-results/
+/tests/
