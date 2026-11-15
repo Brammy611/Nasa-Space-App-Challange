@@ -3,7 +3,15 @@
   "services": {
     "frontend": {
       "root": ".",
-      "framework": "nextjs"
+      "framework": "nextjs",
+      "bindings": [
+        {
+          "type": "service",
+          "service": "backend",
+          "format": "url",
+          "env": "PYTHON_PROCESSING_API_URL"
+        }
+      ]
     },
     "backend": {
       "root": "python-service/",
@@ -13,7 +21,7 @@
   },
   "rewrites": [
     {
-      "source": "/api/(.*)",
+      "source": "/api/health",
       "destination": {
         "service": "backend"
       }
