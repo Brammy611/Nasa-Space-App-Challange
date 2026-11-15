@@ -49,7 +49,11 @@ select lives_ok(
   $$select public.create_operation_incident('{"sourceType":"satellite","sourceId":"test-hotspot-1","sourceSnapshot":{"frp":12.5},"title":"Synthetic hotspot","description":"Test-only observation","lat":-1.2,"lon":110.4,"adminLabel":"Test district","reason":"Create a synthetic incident for local workflow testing."}'::jsonb)$$,
   'field officers can create an incident from an observation'
 );
-select is((select count(*)::int from public.operation_incidents), 1, 'active officers can read incidents');
+select is(
+  (select count(*)::int from public.operation_incidents where source_id = 'test-hotspot-1'),
+  1,
+  'active officers can read the incident created by this test'
+);
 select throws_ok(
   $$insert into public.operation_incidents(reference,source_type,title,lat,lon,created_by,created_by_name) values ('BYPASS-1','manual','Bypass attempt',0,110,auth.uid(),'Field Officer')$$,
   '42501', null, 'direct table writes are denied'
