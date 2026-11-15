@@ -13,8 +13,10 @@ COPY fire_pipeline ./fire_pipeline
 # (~29 MB instead of ~118 MB, under GitHub's 100 MB per-file limit) and unpacked here.
 #   data/historical.sqlite.gz     (scripts/build_historical_store.py, then: gzip -9 -k)
 #   data/admin_boundaries.sqlite  (scripts/build_admin_boundaries.py)
-COPY data/historical.sqlite.gz data/admin_boundaries.sqlite ./data/
-RUN gunzip ./data/historical.sqlite.gz
+# Both files are optional: if they are missing the API still starts, but the historical
+# calendar and kecamatan lookup are unavailable. data/.gitkeep keeps the folder in Git.
+COPY data/ ./data/
+RUN if [ -f ./data/historical.sqlite.gz ]; then gunzip -f ./data/historical.sqlite.gz; fi
 
 EXPOSE 8000
 HEALTHCHECK CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:' + __import__('os').environ.get('PORT', '8000') + '/api/health')"

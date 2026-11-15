@@ -51,4 +51,5 @@ __pycache__/
 
 # generated offline historical data store (rebuilt from local NASA FIRMS CSVs
 # via python-service/scripts/build_historical_store.py; ~20MB, not source)
-python-service/data/
+python-service/data/*
+!python-service/data/.gitkeep
