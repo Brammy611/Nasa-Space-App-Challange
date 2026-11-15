@@ -1,4 +1,4 @@
-import { backendHeaders } from "@/lib/officerAuth";
+import { pythonHeaders } from "@/lib/pythonProxy";
 
 export const dynamic = "force-dynamic";
 
@@ -11,8 +11,8 @@ const PYTHON_API = process.env.PYTHON_PROCESSING_API_URL ?? "http://127.0.0.1:80
  * service's own URL to the browser. 404s (no photo / missing file) pass
  * through as-is.
  *
- * Only the reporter (`?submitterToken=`) and signed-in officers can load a
- * photo; the backend returns 404 to everyone else, verified or not.
+ * Public demo access loads photos through the server-only bridge; the bridge
+ * credential is never exposed to the browser.
  */
 export async function GET(
   request: Request,
@@ -25,7 +25,7 @@ export async function GET(
 
   try {
     const upstream = await fetch(upstreamUrl, {
-      headers: await backendHeaders(request),
+      headers: pythonHeaders(request),
       cache: "no-store",
       signal: AbortSignal.timeout(30_000),
     });

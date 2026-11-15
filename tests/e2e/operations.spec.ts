@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("citizen report becomes a verified, assigned incident in Supabase", async ({ page, request }) => {
+test("public citizen report becomes a verified, assigned incident in Supabase", async ({ page, request }) => {
   const unique = Date.now().toString(36);
   const description = `E2E Supabase ${unique}: asap tebal terlihat dari permukiman.`;
   const teamName = `Tim E2E ${unique}`;
@@ -30,15 +30,12 @@ test("citizen report becomes a verified, assigned incident in Supabase", async (
   expect(submitted.status()).toBe(201);
 
   await page.goto("/incidents");
-  await expect(page).toHaveURL(/\/officer-login\?next=/);
-  await page.getByLabel("Email").fill("officer@firewatch.local");
-  await page.getByLabel("Kata sandi").fill("FireWatchLocal123!");
-  await page.getByRole("button", { name: "Masuk" }).click();
   await expect(page).toHaveURL(/\/incidents$/);
   await expect(page.getByRole("heading", { name: "Operasi Insiden" })).toBeVisible();
 
   await page.goto("/citizen-reports");
   await expect(page.getByRole("heading", { name: "Laporan Warga", exact: true })).toBeVisible();
+  await expect(page.getByText(/Mode demo publik aktif/)).toBeVisible();
   const reportRow = page.locator("tbody tr").filter({ hasText: description });
   await expect(reportRow).toBeVisible();
   await reportRow.click();
@@ -52,8 +49,13 @@ test("citizen report becomes a verified, assigned incident in Supabase", async (
   await page.goto("/incidents");
   const candidate = page.locator("div").filter({ hasText: description }).filter({ has: page.getByRole("button", { name: "Buka insiden" }) }).last();
   await expect(candidate).toBeVisible();
+  const incidentCreation = page.waitForResponse(
+    (response) => response.url().endsWith("/api/operations/incidents") && response.request().method() === "POST"
+  );
   await candidate.getByRole("button", { name: "Buka insiden" }).click();
-  await expect(page.getByText(description, { exact: true })).toBeVisible();
+  expect((await incidentCreation).status()).toBe(201);
+  const detailPanel = page.getByTestId("incident-detail");
+  await expect(detailPanel.getByText(description, { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Tambah tim" }).click();
   await page.getByPlaceholder("Nama tim").fill(teamName);
@@ -65,43 +67,44 @@ test("citizen report becomes a verified, assigned incident in Supabase", async (
   const verificationForm = page.locator("form").filter({ hasText: "1. Verifikasi manusia" });
   await verificationForm.locator("select").selectOption("confirmed");
   await verificationForm.locator("textarea").fill("Bukti warga telah dikonfirmasi melalui pemeriksaan manusia.");
-  const verificationRefresh = page.waitForResponse(
-    (response) => response.url().includes("/api/operations/notifications") && response.request().method() === "GET"
+  const verificationMutation = page.waitForResponse(
+    (response) => response.url().includes("/api/operations/incidents/") && response.request().method() === "PATCH"
   );
   await verificationForm.getByRole("button", { name: "Simpan verifikasi" }).click();
-  await verificationRefresh;
+  expect((await verificationMutation).ok()).toBeTruthy();
   await expect(page.getByText("Bukti warga telah dikonfirmasi melalui pemeriksaan manusia.")).toBeVisible();
 
   const priorityForm = page.locator("form").filter({ hasText: "2. Prioritas manual" });
   await priorityForm.locator("select").selectOption("high");
   await priorityForm.locator("textarea").fill("Asap dekat permukiman memerlukan respons lapangan berprioritas tinggi.");
-  const priorityRefresh = page.waitForResponse(
-    (response) => response.url().includes("/api/operations/notifications") && response.request().method() === "GET"
+  const priorityMutation = page.waitForResponse(
+    (response) => response.url().includes("/api/operations/incidents/") && response.request().method() === "PATCH"
   );
   await priorityForm.getByRole("button", { name: "Simpan prioritas" }).click();
-  await priorityRefresh;
+  expect((await priorityMutation).ok()).toBeTruthy();
   await expect(page.getByText("Asap dekat permukiman memerlukan respons lapangan berprioritas tinggi.")).toBeVisible();
 
   const assignmentForm = page.locator("form").filter({ hasText: "3. Penugasan tim" });
   await assignmentForm.locator("select").selectOption({ label: `${teamName} · Kalimantan Tengah` });
   await assignmentForm.locator("textarea").fill("Tim lokal ditugaskan untuk pemeriksaan dan koordinasi lapangan.");
-  const assignmentRefresh = page.waitForResponse(
-    (response) => response.url().includes("/api/operations/notifications") && response.request().method() === "GET"
+  const assignmentMutation = page.waitForResponse(
+    (response) => response.url().includes("/api/operations/incidents/") && response.request().method() === "PATCH"
   );
   await assignmentForm.getByRole("button", { name: "Tugaskan tim" }).click();
-  await assignmentRefresh;
+  expect((await assignmentMutation).ok()).toBeTruthy();
   await expect(page.getByText("Tim lokal ditugaskan untuk pemeriksaan dan koordinasi lapangan.")).toBeVisible();
 
   const progressForm = page.locator("form").filter({ hasText: "4. Progres penanganan" });
   await progressForm.locator("select").selectOption("in_progress");
   await progressForm.locator("textarea").fill("Tim sudah bergerak dan penanganan lapangan sedang berlangsung.");
-  const progressRefresh = page.waitForResponse(
-    (response) => response.url().includes("/api/operations/notifications") && response.request().method() === "GET"
+  const progressMutation = page.waitForResponse(
+    (response) => response.url().includes("/api/operations/incidents/") && response.request().method() === "PATCH"
   );
   await progressForm.getByRole("button", { name: "Perbarui progres" }).click();
-  await progressRefresh;
+  expect((await progressMutation).ok()).toBeTruthy();
   await expect(page.getByText("Tim sudah bergerak dan penanganan lapangan sedang berlangsung.")).toBeVisible();
   await expect(page.getByText(new RegExp(`ditugaskan ke ${teamName}`)).first()).toBeVisible();
+  await expect(page.getByText("Perubahan progres · Public Operator")).toBeVisible();
 
   const layout = await page.evaluate(() => ({
     viewport: window.innerWidth,
@@ -111,7 +114,6 @@ test("citizen report becomes a verified, assigned incident in Supabase", async (
   expect(pageErrors).toEqual([]);
   expect(localServerErrors).toEqual([]);
 
-  await page.evaluate(() => fetch("/api/officer/logout", { method: "POST" }));
-  await page.goto("/incidents");
-  await expect(page).toHaveURL(/\/officer-login\?next=/);
+  await page.goto("/officer-login");
+  await expect(page).toHaveURL(/\/incidents$/);
 });

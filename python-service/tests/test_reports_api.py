@@ -8,8 +8,7 @@ import main
 from fire_pipeline.access import report_limiter
 from fire_pipeline.live import LiveDataError
 
-OFFICER_KEY = "test-officer-key"
-OFFICER = {"X-Officer-Key": OFFICER_KEY}
+PUBLIC_HEADERS: dict[str, str] = {}
 
 # A real, minimal 1x1 transparent PNG, base64-encoded.
 TINY_PNG_B64 = (
@@ -21,7 +20,6 @@ TINY_PNG_B64 = (
 def _configure_storage(tmp_path, monkeypatch):
     monkeypatch.setenv("FIRE_REPORTS_DB_PATH", str(tmp_path / "reports.sqlite"))
     monkeypatch.setenv("FIRE_REPORT_PHOTOS_DIR", str(tmp_path / "report_photos"))
-    monkeypatch.setenv("OFFICER_ACCESS_KEY", OFFICER_KEY)
     report_limiter.reset()
 
 
@@ -59,7 +57,7 @@ def test_submit_report_appears_in_list_and_detail(tmp_path, monkeypatch):
     ids = [report["id"] for report in list_response.json()["reports"]]
     assert report_id in ids
 
-    detail_response = client.get(f"/api/reports/{report_id}", headers=OFFICER)
+    detail_response = client.get(f"/api/reports/{report_id}", headers=PUBLIC_HEADERS)
     assert detail_response.status_code == 200
     detail = detail_response.json()
     assert detail["id"] == report_id
@@ -77,7 +75,7 @@ def test_submit_report_with_invalid_lat_lon_returns_422_and_nothing_persisted(tm
     )
     assert response.status_code == 422
 
-    listing = client.get("/api/reports", headers=OFFICER).json()
+    listing = client.get("/api/reports", headers=PUBLIC_HEADERS).json()
     assert listing["reports"] == []
 
 
@@ -92,7 +90,7 @@ def test_submit_report_with_empty_description_returns_422_and_nothing_persisted(
     )
     assert response.status_code == 422
 
-    listing = client.get("/api/reports", headers=OFFICER).json()
+    listing = client.get("/api/reports", headers=PUBLIC_HEADERS).json()
     assert listing["reports"] == []
 
 
@@ -158,7 +156,7 @@ def test_correlation_links_marker_within_window_and_excludes_marker_outside_it(t
     assert near_link["timeDiffMin"] < 24 * 60
 
     # Confirm the same links are visible on a subsequent GET (persisted, not just in the POST response).
-    detail = client.get(f"/api/reports/{body['id']}", headers=OFFICER).json()
+    detail = client.get(f"/api/reports/{body['id']}", headers=PUBLIC_HEADERS).json()
     assert {link["markerId"] for link in detail["satelliteLinks"]} == {near_marker["id"]}
 
 
@@ -176,28 +174,28 @@ def test_patch_status_update_persists_and_rejects_invalid_status(tmp_path, monke
     valid_response = client.patch(
         f"/api/reports/{report_id}",
         json={"status": "verified", "reviewNote": "Confirmed by field team"},
-        headers=OFFICER,
+        headers=PUBLIC_HEADERS,
     )
     assert valid_response.status_code == 200
     assert valid_response.json()["status"] == "verified"
     assert valid_response.json()["reviewNote"] == "Confirmed by field team"
 
-    confirm = client.get(f"/api/reports/{report_id}", headers=OFFICER).json()
+    confirm = client.get(f"/api/reports/{report_id}", headers=PUBLIC_HEADERS).json()
     assert confirm["status"] == "verified"
     assert confirm["reviewNote"] == "Confirmed by field team"
 
-    invalid_response = client.patch(f"/api/reports/{report_id}", json={"status": "not_a_real_status"}, headers=OFFICER)
+    invalid_response = client.patch(f"/api/reports/{report_id}", json={"status": "not_a_real_status"}, headers=PUBLIC_HEADERS)
     assert invalid_response.status_code == 422
 
     # The bad status attempt must not have clobbered the previously-persisted valid status.
-    still_verified = client.get(f"/api/reports/{report_id}", headers=OFFICER).json()
+    still_verified = client.get(f"/api/reports/{report_id}", headers=PUBLIC_HEADERS).json()
     assert still_verified["status"] == "verified"
 
 
 def test_patch_nonexistent_report_returns_404(tmp_path, monkeypatch):
     _configure_storage(tmp_path, monkeypatch)
     client = TestClient(main.app)
-    response = client.patch("/api/reports/does-not-exist", json={"status": "verified"}, headers=OFFICER)
+    response = client.patch("/api/reports/does-not-exist", json={"status": "verified"}, headers=PUBLIC_HEADERS)
     assert response.status_code == 404
 
 
@@ -221,7 +219,7 @@ def test_submit_report_when_live_fetch_unavailable_still_saves_with_no_links(tmp
     assert "NASA_FIRMS_MAP_KEY" in body["correlationWarning"]
 
     # Report itself is durably saved even though correlation failed.
-    detail = client.get(f"/api/reports/{body['id']}", headers=OFFICER)
+    detail = client.get(f"/api/reports/{body['id']}", headers=PUBLIC_HEADERS)
     assert detail.status_code == 200
     assert detail.json()["satelliteLinks"] == []
 
@@ -258,10 +256,10 @@ def test_submit_and_fetch_photo_round_trip(tmp_path, monkeypatch):
     assert photo_response.headers["content-type"] == "image/jpeg"
     assert photo_response.content[:3] == b"\xff\xd8\xff"
 
-    # Strangers cannot load it, not even by guessing the id.
-    assert client.get(f"/api/reports/{report_id}/photo").status_code == 404
-    assert client.get(f"/api/reports/{report_id}/photo", params={"submitterToken": "someone-else"}).status_code == 404
-    assert client.get(f"/api/reports/{report_id}/photo", headers=OFFICER).status_code == 200
+    # Public demo mode exposes the photo without a login or reporter token.
+    assert client.get(f"/api/reports/{report_id}/photo").status_code == 200
+    assert client.get(f"/api/reports/{report_id}/photo", params={"submitterToken": "someone-else"}).status_code == 200
+    assert client.get(f"/api/reports/{report_id}/photo", headers=PUBLIC_HEADERS).status_code == 200
 
 
 def test_submit_report_with_invalid_photo_bytes_returns_422_and_nothing_persisted(tmp_path, monkeypatch):
@@ -282,7 +280,7 @@ def test_submit_report_with_invalid_photo_bytes_returns_422_and_nothing_persiste
     )
     assert response.status_code == 422
 
-    listing = client.get("/api/reports", headers=OFFICER).json()
+    listing = client.get("/api/reports", headers=PUBLIC_HEADERS).json()
     assert listing["reports"] == []
 
 
@@ -300,7 +298,7 @@ def test_photo_endpoint_404_when_no_photo_was_submitted(tmp_path, monkeypatch):
     assert response.status_code == 404
 
 
-# --- Access control, privacy and abuse protection ----------------------------
+# --- Public demo access and abuse protection --------------------------------
 
 
 def _submit(client, token="reporter-x", lat=-2.123456, lon=104.876543, **extra):
@@ -312,45 +310,43 @@ def _submit(client, token="reporter-x", lat=-2.123456, lon=104.876543, **extra):
     return response.json()
 
 
-def test_full_list_requires_officer_or_own_token(tmp_path, monkeypatch):
+def test_full_list_is_public_and_token_can_still_filter(tmp_path, monkeypatch):
     _configure_storage(tmp_path, monkeypatch)
     monkeypatch.setattr(main, "load_live_hotspots", _no_live_markers)
     client = TestClient(main.app)
     mine = _submit(client, token="alice")
     _submit(client, token="bob")
 
-    assert client.get("/api/reports").status_code == 401
-    assert client.get("/api/reports", headers={"X-Officer-Key": "wrong"}).status_code == 401
+    assert len(client.get("/api/reports").json()["reports"]) == 2
+    assert len(client.get("/api/reports", headers={"X-Officer-Key": "wrong"}).json()["reports"]) == 2
 
     own = client.get("/api/reports", params={"submitterToken": "alice"}).json()["reports"]
     assert [r["id"] for r in own] == [mine["id"]]
 
-    everything = client.get("/api/reports", headers=OFFICER).json()["reports"]
+    everything = client.get("/api/reports", headers=PUBLIC_HEADERS).json()["reports"]
     assert len(everything) == 2
 
 
-def test_officer_access_fails_closed_when_key_not_configured(tmp_path, monkeypatch):
+def test_public_access_needs_no_special_header(tmp_path, monkeypatch):
     _configure_storage(tmp_path, monkeypatch)
-    monkeypatch.delenv("OFFICER_ACCESS_KEY")
     monkeypatch.setattr(main, "load_live_hotspots", _no_live_markers)
     client = TestClient(main.app)
     report = _submit(client)
 
-    assert client.get("/api/reports", headers={"X-Officer-Key": ""}).status_code == 401
-    response = client.patch(f"/api/reports/{report['id']}", json={"status": "verified"}, headers=OFFICER)
-    assert response.status_code == 401
+    assert client.get("/api/reports", headers={"X-Officer-Key": ""}).status_code == 200
+    response = client.patch(f"/api/reports/{report['id']}", json={"status": "verified"}, headers=PUBLIC_HEADERS)
+    assert response.status_code == 200
 
 
-def test_patch_without_officer_key_is_rejected(tmp_path, monkeypatch):
+def test_patch_is_public(tmp_path, monkeypatch):
     _configure_storage(tmp_path, monkeypatch)
     monkeypatch.setattr(main, "load_live_hotspots", _no_live_markers)
     client = TestClient(main.app)
     report = _submit(client, token="alice")
 
-    # Not even the reporter can verify their own report.
     response = client.patch(f"/api/reports/{report['id']}", json={"status": "verified"})
-    assert response.status_code == 401
-    assert client.get(f"/api/reports/{report['id']}", headers=OFFICER).json()["status"] == "submitted"
+    assert response.status_code == 200
+    assert client.get(f"/api/reports/{report['id']}").json()["status"] == "verified"
 
 
 def test_public_list_shows_only_verified_reports_without_private_fields(tmp_path, monkeypatch):
@@ -362,7 +358,7 @@ def test_public_list_shows_only_verified_reports_without_private_fields(tmp_path
     client.patch(
         f"/api/reports/{verified['id']}",
         json={"status": "verified", "reviewNote": "Dicek tim Daops, pemilik lahan Pak X"},
-        headers=OFFICER,
+        headers=PUBLIC_HEADERS,
     )
 
     public = client.get("/api/reports/public").json()["reports"]
@@ -375,24 +371,23 @@ def test_public_list_shows_only_verified_reports_without_private_fields(tmp_path
     assert item["locationPrecision"] == "approximate"
 
 
-def test_detail_for_strangers_is_public_shape_or_404(tmp_path, monkeypatch):
+def test_full_report_detail_is_public(tmp_path, monkeypatch):
     _configure_storage(tmp_path, monkeypatch)
     monkeypatch.setattr(main, "load_live_hotspots", _no_live_markers)
     client = TestClient(main.app)
     report = _submit(client, token="alice")
     report_id = report["id"]
 
-    # Unreviewed: invisible to anyone but the reporter and officers.
-    assert client.get(f"/api/reports/{report_id}").status_code == 404
-    assert client.get(f"/api/reports/{report_id}", params={"submitterToken": "bob"}).status_code == 404
-    own = client.get(f"/api/reports/{report_id}", params={"submitterToken": "alice"}).json()
-    assert own["submitterToken"] == "alice"
-    assert own["lat"] == -2.123456
+    public = client.get(f"/api/reports/{report_id}").json()
+    assert public["submitterToken"] == "alice"
+    assert public["lat"] == -2.123456
+    stranger = client.get(f"/api/reports/{report_id}", params={"submitterToken": "bob"}).json()
+    assert stranger["submitterToken"] == "alice"
 
-    client.patch(f"/api/reports/{report_id}", json={"status": "verified"}, headers=OFFICER)
+    client.patch(f"/api/reports/{report_id}", json={"status": "verified"}, headers=PUBLIC_HEADERS)
     stranger = client.get(f"/api/reports/{report_id}").json()
-    assert "submitterToken" not in stranger
-    assert stranger["lat"] == -2.12
+    assert stranger["submitterToken"] == "alice"
+    assert stranger["lat"] == -2.123456
 
 
 def test_uploaded_photo_is_reencoded_without_exif_gps(tmp_path, monkeypatch):

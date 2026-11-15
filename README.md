@@ -80,27 +80,27 @@ Ada juga kotak "area dengan aktivitas tidak biasa". Kotak ini menandai sel yang 
 
 Warga bisa melapor lewat `/community/report`: lokasi (cari nama kecamatan atau pakai GPS), jenis kejadian, dan satu foto. Laporan tersimpan di `reports.sqlite`. Sistem otomatis mencari deteksi satelit dalam radius 5 km dan 24 jam dari laporan itu.
 
-Hasil pencocokan ini tidak mengubah status laporan. Yang memutuskan tetap petugas, di `/citizen-reports`, setelah masuk lewat `/officer-login`.
+Hasil pencocokan ini tidak mengubah status laporan. Keputusan manusia tetap dilakukan di `/citizen-reports`. Untuk demo, halaman ini dibuka tanpa login dan setiap perubahan dicatat sebagai `Public Operator`.
 
 Form laporan menampilkan tombol telepon 112 di bagian atas. Dari wawancara, warga biasa menghubungi damkar atau perangkat desa lebih dulu, dan laporan di aplikasi ini ditinjau belakangan, jadi aplikasi ini bukan saluran darurat.
 
-Aturan privasi laporan:
-- Warga lain hanya melihat laporan yang sudah **diverifikasi petugas**, dengan koordinat dibulatkan ke ±1 km, tanpa foto, tanpa catatan petugas, dan tanpa token pelapor (`GET /api/reports/public`).
-- Pelapor sendiri melihat laporannya secara lengkap lewat token di browsernya.
-- Foto hanya bisa dibuka pelapor dan petugas. Setiap foto dibuat ulang menjadi JPEG baru di backend, sehingga metadata EXIF (termasuk lokasi GPS kamera) terbuang.
+Aturan akses laporan pada mode demo publik:
+- `/community` tetap memakai bentuk publik laporan terverifikasi: koordinat dibulatkan ±1 km, tanpa foto, catatan, atau token (`GET /api/reports/public`).
+- `/citizen-reports` sengaja membuka detail lengkap, foto, dan koordinat tanpa login untuk kebutuhan demo. Jangan gunakan mode ini dengan data pribadi nyata.
+- Setiap foto tetap dibuat ulang menjadi JPEG baru di backend sehingga metadata EXIF, termasuk lokasi GPS kamera, terbuang.
 - Satu browser atau satu IP maksimal 5 laporan per 10 menit (`REPORT_RATE_LIMIT`, `REPORT_RATE_WINDOW_S`).
 
 ### 5. Operasi insiden
 
-`/incidents` mengisi alur operasional yang sebelumnya belum ada di FireWatch. Petugas dapat membuka insiden dari deteksi satelit atau laporan warga, lalu menjalankan empat keputusan yang terpisah:
+`/incidents` mengisi alur operasional yang sebelumnya belum ada di FireWatch. Pada mode demo publik, siapa pun dapat membuka insiden dari deteksi satelit atau laporan warga, lalu menjalankan empat keputusan yang terpisah:
 - verifikasi manusia (`confirmed`, `not_confirmed`, atau perlu informasi);
 - prioritas manual (kritis/tinggi/sedang/rendah);
 - penugasan tim lapangan;
 - progres dari penelaahan sampai selesai atau dibatalkan.
 
-Severity dan FRP satelit disimpan sebagai konteks sumber, tetapi **tidak pernah otomatis menjadi verifikasi atau prioritas**. Setiap perubahan wajib menyertakan alasan minimal 10 karakter, memakai versi baris untuk mencegah petugas menimpa perubahan petugas lain, dan masuk ke timeline yang tidak dapat diedit. Penugasan, prioritas tinggi/kritis, dan perubahan progres juga membuat notifikasi operasional.
+Severity dan FRP satelit disimpan sebagai konteks sumber, tetapi **tidak pernah otomatis menjadi verifikasi atau prioritas**. Setiap perubahan wajib menyertakan alasan minimal 10 karakter, memakai versi baris untuk mencegah perubahan bersamaan saling menimpa, dan masuk ke timeline yang tidak dapat diedit. Penugasan, prioritas tinggi/kritis, dan perubahan progres juga membuat notifikasi operasional.
 
-Insiden, tim, timeline, notifikasi, akun petugas, dan role akses disimpan di Supabase Postgres. Semua tabel operasional memakai RLS; perubahan hanya lewat RPC tervalidasi yang memeriksa akun aktif dan role, memakai optimistic locking, lalu menulis audit trail secara atomik. `reports.sqlite` tetap menjadi store laporan warga pada pipeline Python, dan Next.js menjembatani petugas Supabase yang sudah tervalidasi ke endpoint privat laporan warga.
+Insiden, tim, timeline, dan notifikasi disimpan di Supabase Postgres. Semua tabel operasional memakai RLS; role `anon` hanya mendapat akses baca dan eksekusi RPC tervalidasi, bukan akses tulis langsung. RPC memakai optimistic locking dan menulis audit trail sebagai `Public Operator` secara atomik. `reports.sqlite` tetap menjadi store laporan warga pada pipeline Python, dan Next.js memakai bridge server-only untuk membuka alur review publik.
 
 ### 6. Status wilayah untuk warga
 
@@ -173,13 +173,13 @@ Batas wilayah BPS via OCHA (offline) ──┘     fire_pipeline/
                                               ├─ historical.sqlite  (arsip, read-only)
                                               ├─ admin_boundaries.sqlite (read-only)
                                               └─ reports.sqlite     (laporan warga, read-write)
-Supabase Auth + Postgres              ─────────────► akun petugas, RLS, insiden, tim, audit, notifikasi
+Supabase Postgres                     ─────────────► RLS, insiden, tim, audit, notifikasi
 ```
 
 - **Frontend:** Next.js App Router, React, TypeScript, Tailwind, Leaflet.
 - **Backend:** Python 3.12, FastAPI, pandas, numpy, shapely.
 - **Penyimpanan:** SQLite untuk arsip dan laporan warga; Supabase Postgres untuk data operasional.
-- **Login petugas:** akun email/password Supabase Auth per petugas. Role dan status akun dibaca dari `public.profiles`, bukan metadata JWT yang dapat diubah pengguna. Proxy hanya melakukan redirect optimistis; route API memvalidasi user dan RLS menegakkan akses di sumber data. `OFFICER_ACCESS_KEY` hanya kredensial server-ke-server Next.js → Python untuk data laporan warga privat, bukan password login.
+- **Akses operasi:** mode demo publik tanpa login. Supabase RLS memberi `anon` akses baca dan RPC tervalidasi, sementara tulis langsung tetap ditolak.
 - **Identitas pelapor:** token acak yang disimpan di browser, bukan akun.
 
 ## API
@@ -196,11 +196,11 @@ Supabase Auth + Postgres              ─────────────►
 | `GET /api/weather` | Angin dan kualitas udara untuk satu titik |
 | `POST /api/reports` | Kirim laporan warga (dibatasi per token dan per IP) |
 | `GET /api/reports/public` | Laporan terverifikasi saja, bentuk publik (tanpa token/foto/catatan, koordinat ±1 km) |
-| `GET /api/reports` | Semua laporan untuk petugas (`X-Officer-Key`), atau laporan milik sendiri dengan `submitterToken` |
-| `GET /api/reports/{id}` | Lengkap untuk pelapor/petugas; bentuk publik untuk laporan terverifikasi; 404 untuk yang lain |
-| `PATCH /api/reports/{id}` | Ubah status, petugas saja |
-| `GET /api/reports/{id}/photo` | Foto, pelapor dan petugas saja |
-| `GET`, `POST /api/operations/incidents` | Next.js + Supabase: antrean insiden dan pembuatan insiden dari satelit/laporan warga, petugas saja |
+| `GET /api/reports` | Semua laporan pada mode demo publik melalui bridge server-only |
+| `GET /api/reports/{id}` | Detail laporan lengkap pada mode demo publik |
+| `PATCH /api/reports/{id}` | Ubah status laporan tanpa login; audit `Public Operator` |
+| `GET /api/reports/{id}/photo` | Foto laporan pada mode demo publik |
+| `GET`, `POST /api/operations/incidents` | Antrean dan pembuatan insiden publik lewat Supabase RPC tervalidasi |
 | `GET`, `PATCH /api/operations/incidents/{id}` | Detail + timeline, serta verifikasi/prioritas/assignment/progres dengan optimistic locking |
 | `GET`, `POST /api/operations/teams` | Daftar dan pembuatan tim lapangan |
 | `GET /api/operations/notifications` | Notifikasi perubahan operasional terbaru |
@@ -221,13 +221,13 @@ npm run supabase:reset
 npx supabase status -o env     # salin API_URL + PUBLISHABLE_KEY ke .env.local
 ```
 
-Seed lokal membuat akun `officer@firewatch.local` / `FireWatchLocal123!` dengan role admin. Akun ini hanya untuk komputer lokal; seed hosted harus memakai identitas bernama dan password berbeda.
+Tidak ada akun login yang diperlukan untuk menjalankan alur demo publik.
 
 Lalu jalankan dua terminal:
 
 ```bash
-# backend (nilai bridge sama dengan OFFICER_ACCESS_KEY di .env.local)
-OFFICER_ACCESS_KEY=<server-bridge-key> python-service/.venv/bin/python -m uvicorn main:app --app-dir python-service --host 127.0.0.1 --port 8000
+# backend
+python-service/.venv/bin/python -m uvicorn main:app --app-dir python-service --host 127.0.0.1 --port 8000
 
 # frontend
 npm run dev -- --hostname 127.0.0.1 --port 3000
@@ -267,7 +267,7 @@ Kalau file ini tidak ada, aplikasi tetap jalan dan lokasi ditampilkan sebagai ko
 ```bash
 cd python-service && .venv/bin/python -m pytest          # 130 test produksi
 .venv/bin/python -m pytest ml_experiments                # 22 test riset (terpisah dari produksi)
-cd .. && npm run supabase:test                           # 22 tes pgTAP/RLS
+cd .. && npm run supabase:test                           # 20 tes pgTAP/RLS
 npm run lint && npm run build
 npm run test:e2e                                         # stack lokal + server harus hidup
 ```
@@ -283,7 +283,7 @@ src/components/map/       FireMap (★ MODIS, ⬡ VIIRS, 🔥 terharmonisasi, �
                           AoiDrawMap (gambar area sendiri)
 src/lib/                  filter wilayah & waktu, hook data live, i18n,
                           calendarSeries (bulan live, bulan tidak biasa, periode kritis, CSV),
-                          aoiPolygon, session petugas, Supabase DAL/RPC adapter
+                          aoiPolygon, bridge publik, Supabase DAL/RPC adapter
 supabase/                 config lokal, migration Postgres/RLS/RPC, seed, tes pgTAP
 python-service/
   fire_pipeline/          clean, matching, harmonize_events, features, model, live,
@@ -307,7 +307,7 @@ python-service/
 - **Tanggal di arsip memakai UTC,** bukan WIB.
 - **Skor prioritas belum divalidasi** bersama Manggala Agni atau BPBD.
 - **Kualitas udara memakai US AQI, bukan ISPU Indonesia.** Ambang batas kedua skala berbeda.
-- **Laporan warga dan foto masih berada di disk Python lokal.** Supabase sudah menjadi sumber data akun dan operasi, tetapi `reports.sqlite` serta folder foto tetap membutuhkan disk persisten bila nanti di-host. Migrasi laporan/foto ke Supabase Storage belum dilakukan.
+- **Laporan warga dan foto masih berada di disk Python lokal.** Supabase sudah menjadi sumber data operasi, tetapi `reports.sqlite` serta folder foto tetap membutuhkan disk persisten bila nanti di-host. Migrasi laporan/foto ke Supabase Storage belum dilakukan.
 - **Token pelapor ada di URL foto** (`?submitterToken=`), karena tag `<img>` tidak bisa mengirim header. Token itu hanya membuka laporan milik pelapor sendiri.
 - **Peringatan dini belum dikirim sebagai push notification.** Halaman Notifikasi baru menyaring data saat aplikasi dibuka.
 

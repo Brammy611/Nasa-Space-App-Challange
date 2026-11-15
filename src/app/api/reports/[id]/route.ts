@@ -1,4 +1,4 @@
-import { backendHeaders, isOfficerRequest } from "@/lib/officerAuth";
+import { pythonHeaders } from "@/lib/pythonProxy";
 
 export const dynamic = "force-dynamic";
 
@@ -9,9 +9,7 @@ const PYTHON_API = process.env.PYTHON_PROCESSING_API_URL ?? "http://127.0.0.1:80
  * detail including `satelliteLinks` (the correlated live satellite markers),
  * unlike the list endpoint in src/app/api/reports/route.ts.
  *
- * The reporter (matching `?submitterToken=`) and signed-in officers get the
- * full report. Anyone else gets a verified report in its reduced public
- * shape, or 404 for reports that are not verified.
+ * Public demo access receives the full report through the server-only bridge.
  */
 export async function GET(request: Request, ctx: RouteContext<"/api/reports/[id]">) {
   const { id } = await ctx.params;
@@ -21,7 +19,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/reports/[id]
 
   try {
     const upstream = await fetch(upstreamUrl, {
-      headers: await backendHeaders(request),
+      headers: pythonHeaders(request),
       cache: "no-store",
       signal: AbortSignal.timeout(30_000),
     });
@@ -48,16 +46,11 @@ export async function GET(request: Request, ctx: RouteContext<"/api/reports/[id]
 
 /**
  * Proxies PATCH /api/reports/{id} to update a report's review status.
- * Officers only: the Supabase user/profile is checked here, then the backend
- * verifies a server-only X-Officer-Key bridge credential. A "verified" report
- * raises nearby citizens' area status to "Awas".
+ * Public demo access. A "verified" report raises nearby citizens' area
+ * status to "Awas".
  */
 export async function PATCH(request: Request, ctx: RouteContext<"/api/reports/[id]">) {
   const { id } = await ctx.params;
-
-  if (!(await isOfficerRequest())) {
-    return Response.json({ error: "Officer sign-in required.", code: "OFFICER_AUTH_REQUIRED" }, { status: 401 });
-  }
 
   let payload: unknown;
   try {
@@ -69,7 +62,7 @@ export async function PATCH(request: Request, ctx: RouteContext<"/api/reports/[i
   try {
     const upstream = await fetch(`${PYTHON_API}/api/reports/${encodeURIComponent(id)}`, {
       method: "PATCH",
-      headers: await backendHeaders(request, { "Content-Type": "application/json" }),
+      headers: pythonHeaders(request, { "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
       signal: AbortSignal.timeout(30_000),
@@ -82,7 +75,7 @@ export async function PATCH(request: Request, ctx: RouteContext<"/api/reports/[i
     }
 
     if (upstream.status === 401) {
-      return Response.json({ error: "Officer sign-in required.", code: "OFFICER_AUTH_REQUIRED" }, { status: 401 });
+      return Response.json({ error: "Public review bridge is unavailable.", code: "REPORT_BRIDGE_UNAVAILABLE" }, { status: 503 });
     }
 
     if (upstream.status === 422) {

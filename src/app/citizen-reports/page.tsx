@@ -35,10 +35,9 @@ const FireMap = dynamic(() => import("@/components/map/FireMap"), { ssr: false }
  *     `satelliteLinks` (only the single-report detail fetch includes it), so that correlation is
  *     now shown in the detail panel once a report is selected, not guessed at in the table.
  *
- * Access: this page is officer-only. src/proxy.ts refreshes/checks the Supabase session and
- * redirects anonymous visitors to /officer-login. Route handlers validate the Supabase user
- * again before attaching the server-only Python bridge key. If the session expires mid-use,
- * any 401 sends the officer back to the login page instead of showing an empty list.
+ * Access: this demo surface is public. Route handlers attach the server-only Python bridge key,
+ * while the browser never receives that credential. Review events use the generic
+ * "Public Operator" audit identity.
  */
 
 const STATUS_ORDER: ReportStatus[] = ["submitted", "under_review", "satellite_matched", "verified", "rejected"];
@@ -69,17 +68,8 @@ function formatDateTime(value: string | null | undefined, language: Language): s
   return `${date.toLocaleString(language === "en" ? "en-GB" : "id-ID", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Jakarta" })} WIB`;
 }
 
-function redirectToOfficerLogin(): never {
-  // Full page load on purpose: the session cookie is HttpOnly, and a hard navigation drops any
-  // report data already held in memory.
-  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-  window.location.href = `/officer-login?next=${encodeURIComponent("/citizen-reports")}`;
-  throw new Error("");
-}
-
 async function fetchReports(signal?: AbortSignal): Promise<CommunityReport[]> {
   const response = await fetch("/api/reports", { cache: "no-store", signal });
-  if (response.status === 401) redirectToOfficerLogin();
   const body = (await response.json()) as ReportsListResponse & { error?: string };
   if (!response.ok) {
     throw new Error(body.error ?? "");
@@ -89,7 +79,6 @@ async function fetchReports(signal?: AbortSignal): Promise<CommunityReport[]> {
 
 async function fetchReportDetail(id: string, signal?: AbortSignal): Promise<CommunityReport> {
   const response = await fetch(`/api/reports/${id}`, { cache: "no-store", signal });
-  if (response.status === 401) redirectToOfficerLogin();
   const body = (await response.json()) as CommunityReport & { error?: string };
   if (!response.ok) {
     throw new Error(body.error ?? "");
@@ -121,7 +110,6 @@ async function patchReportStatus(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status, reviewNote: reviewNote.trim() || undefined }),
   });
-  if (response.status === 401) redirectToOfficerLogin();
   const body = (await response.json()) as CommunityReport & { error?: string };
   if (!response.ok) {
     throw new Error(body.error ?? "");
@@ -129,33 +117,19 @@ async function patchReportStatus(
   return body;
 }
 
-function OfficerSessionBar() {
+function PublicAccessBar() {
   const { tr } = useTranslation();
-  async function signOut() {
-    await fetch("/api/officer/logout", { method: "POST" }).catch(() => undefined);
-    // Full page load on purpose, so no officer-only data stays in memory after signing out.
-    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-    window.location.href = "/";
-  }
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#cfe3d8] bg-[#f3f9f5] px-4 py-3">
+    <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
       <div className="flex items-start gap-3">
-        <span className="material-symbols-outlined mt-0.5 shrink-0 text-[20px] text-[#075640]">verified_user</span>
-        <p className="text-xs leading-relaxed text-[#0c3b2c]">
+        <span className="material-symbols-outlined mt-0.5 shrink-0 text-[20px] text-amber-700">public</span>
+        <p className="text-xs leading-relaxed text-amber-950">
           {tr(
-            "Masuk sebagai petugas. Halaman ini memuat lokasi persis, foto, dan token pelapor: jangan dibagikan ke publik. Status \"Terverifikasi\" akan menaikkan status wilayah warga di sekitarnya menjadi Awas.",
-            "Signed in as officer. This page shows reporters' exact locations, photos and tokens: do not share it publicly. A \"Verified\" status raises nearby citizens' area status to Danger."
+            "Mode demo publik aktif. Semua pengunjung dapat melihat dan meninjau laporan; perubahan dicatat sebagai Public Operator.",
+            "Public demo mode is active. Every visitor can view and review reports; changes are recorded as Public Operator."
           )}
         </p>
       </div>
-      <button
-        type="button"
-        onClick={signOut}
-        className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-[#cfe3d8] bg-white px-3 py-1.5 text-xs font-semibold text-[#075640] hover:bg-[#eef5f1]"
-      >
-        <span className="material-symbols-outlined text-[16px]">logout</span>
-        {tr("Keluar", "Sign out")}
-      </button>
     </div>
   );
 }
@@ -333,7 +307,7 @@ export default function CitizenReportsPage() {
   return (
     <WorkstationLayout activeTab="Citizen Reports">
       <div className="max-w-[1400px] mx-auto space-y-6">
-        <OfficerSessionBar />
+        <PublicAccessBar />
 
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-3">

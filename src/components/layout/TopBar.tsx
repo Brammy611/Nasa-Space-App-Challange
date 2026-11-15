@@ -168,11 +168,11 @@ function TopBarFallback({ onOpenMenu }: { onOpenMenu: () => void }) {
         </span>
         <div className="hidden items-center gap-3 border-l border-white/[0.12] pl-4 sm:flex">
           <div className="w-8 h-8 rounded-full bg-white/[0.26] text-[var(--color-sidebar-foreground)] flex items-center justify-center text-xs font-semibold shrink-0">
-            MA
+            PO
           </div>
           <div className="hidden sm:flex flex-col">
-            <span className="text-sm font-semibold text-[var(--color-sidebar-foreground)] leading-tight">Magnala Adi</span>
-            <span className="text-xs text-[var(--color-sidebar-foreground)]/60 leading-tight">{tr("Petugas Berwenang", "Authorized Officer")}</span>
+            <span className="text-sm font-semibold text-[var(--color-sidebar-foreground)] leading-tight">Public Operator</span>
+            <span className="text-xs text-[var(--color-sidebar-foreground)]/60 leading-tight">{tr("Mode Demo Publik", "Public Demo Mode")}</span>
           </div>
         </div>
       </div>
@@ -251,11 +251,11 @@ function TopBarInner({ onOpenMenu }: { onOpenMenu: () => void }) {
         </button>
         <div className="hidden items-center gap-3 border-l border-white/[0.12] pl-4 sm:flex">
           <div className="w-8 h-8 rounded-full bg-white/[0.26] text-[var(--color-sidebar-foreground)] flex items-center justify-center text-xs font-semibold shrink-0">
-            MA
+            PO
           </div>
           <div className="hidden sm:flex flex-col">
-            <span className="text-sm font-semibold text-[var(--color-sidebar-foreground)] leading-tight">Magnala Adi</span>
-            <span className="text-xs text-[var(--color-sidebar-foreground)]/60 leading-tight">{tr("Petugas Berwenang", "Authorized Officer")}</span>
+            <span className="text-sm font-semibold text-[var(--color-sidebar-foreground)] leading-tight">Public Operator</span>
+            <span className="text-xs text-[var(--color-sidebar-foreground)]/60 leading-tight">{tr("Mode Demo Publik", "Public Demo Mode")}</span>
           </div>
         </div>
       </div>

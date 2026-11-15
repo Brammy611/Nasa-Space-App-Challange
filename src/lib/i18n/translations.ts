@@ -14,7 +14,7 @@ export type Language = "id" | "en";
 export const translations = {
   id: {
     "nav.aboutData": "Tentang data",
-    "nav.loginOfficer": "Masuk sebagai petugas",
+    "nav.loginOfficer": "Buka operasi",
     "nav.operatorPortal": "Portal Operator",
     "nav.dashboard": "Dashboard",
 
@@ -91,7 +91,7 @@ export const translations = {
   },
   en: {
     "nav.aboutData": "About the data",
-    "nav.loginOfficer": "Sign in as officer",
+    "nav.loginOfficer": "Open operations",
     "nav.operatorPortal": "Operator Portal",
     "nav.dashboard": "Dashboard",
 

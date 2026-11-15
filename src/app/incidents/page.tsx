@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import WorkstationLayout from "@/components/layout/WorkstationLayout";
 import Card from "@/components/ui/Card";
 import StatTile from "@/components/ui/StatTile";
@@ -74,16 +74,8 @@ function apiError(body: unknown, fallback: string): string {
   return fallback;
 }
 
-function goToLogin(): never {
-  // Full navigation clears any operational data kept in client state.
-  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-  window.location.assign(`/officer-login?next=${encodeURIComponent("/incidents")}`);
-  throw new Error("Officer session expired");
-}
-
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { cache: "no-store", ...init });
-  if (response.status === 401) goToLogin();
   const body = (await response.json().catch(() => null)) as T | null;
   if (!response.ok) throw new Error(apiError(body, "Permintaan operasi gagal."));
   return body as T;
@@ -117,6 +109,7 @@ function DecisionForm({
   initialValue,
   buttonLabel,
   reasonPlaceholder,
+  disabled = false,
   onSubmit,
 }: {
   title: string;
@@ -124,6 +117,7 @@ function DecisionForm({
   initialValue: string;
   buttonLabel: string;
   reasonPlaceholder: string;
+  disabled?: boolean;
   onSubmit: (value: string, reason: string) => Promise<void>;
 }) {
   const [value, setValue] = useState(initialValue);
@@ -152,7 +146,7 @@ function DecisionForm({
         <select
           value={value}
           onChange={(event) => setValue(event.target.value)}
-          disabled={choices.length === 0}
+          disabled={disabled || choices.length === 0}
           className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs text-gray-800 outline-none focus:ring-2 focus:ring-emerald-400/30"
         >
           {choices.length === 0 && <option value="">Belum ada pilihan tersedia</option>}
@@ -166,6 +160,7 @@ function DecisionForm({
           minLength={10}
           maxLength={2000}
           required
+          disabled={disabled}
           rows={2}
           placeholder={reasonPlaceholder}
           className="w-full resize-y rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs text-gray-800 outline-none focus:ring-2 focus:ring-emerald-400/30"
@@ -173,7 +168,7 @@ function DecisionForm({
         {error && <p role="alert" className="text-[11px] font-medium text-red-600">{error}</p>}
         <button
           type="submit"
-          disabled={busy || choices.length === 0 || !value || reason.trim().length < 10}
+          disabled={disabled || busy || choices.length === 0 || !value || reason.trim().length < 10}
           className="rounded-lg bg-[#075640] px-3 py-2 text-xs font-bold text-white hover:bg-[#06442f] disabled:opacity-50"
         >
           {busy ? "Menyimpan…" : buttonLabel}
@@ -255,6 +250,8 @@ export default function IncidentsPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [creatingSource, setCreatingSource] = useState<string | null>(null);
+  const [decisionPending, setDecisionPending] = useState(false);
+  const mutationLock = useRef(false);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -406,19 +403,28 @@ export default function IncidentsPage() {
 
   async function mutate(action: string, value: string, reason: string) {
     if (!detail) return;
-    const updated = await requestJson<OperationIncident>(`/api/operations/incidents/${detail.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ expectedVersion: detail.rowVersion, action, value, reason }),
-    });
-    integrateIncident(updated);
-    const [incidentBody, notificationBody] = await Promise.all([
-      requestJson<{ incidents: OperationIncident[]; summary: IncidentSummary }>("/api/operations/incidents"),
-      requestJson<{ notifications: OperationNotification[] }>("/api/operations/notifications"),
-    ]);
-    setIncidents(incidentBody.incidents);
-    setSummary(incidentBody.summary);
-    setNotifications(notificationBody.notifications);
+    if (mutationLock.current) throw new Error("Tunggu keputusan sebelumnya selesai disimpan.");
+
+    mutationLock.current = true;
+    setDecisionPending(true);
+    try {
+      const updated = await requestJson<OperationIncident>(`/api/operations/incidents/${detail.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedVersion: detail.rowVersion, action, value, reason }),
+      });
+      integrateIncident(updated);
+      const [incidentBody, notificationBody] = await Promise.all([
+        requestJson<{ incidents: OperationIncident[]; summary: IncidentSummary }>("/api/operations/incidents"),
+        requestJson<{ notifications: OperationNotification[] }>("/api/operations/notifications"),
+      ]);
+      setIncidents(incidentBody.incidents);
+      setSummary(incidentBody.summary);
+      setNotifications(notificationBody.notifications);
+    } finally {
+      mutationLock.current = false;
+      setDecisionPending(false);
+    }
   }
 
   return (
@@ -442,6 +448,11 @@ export default function IncidentsPage() {
         </div>
 
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-950">
+          <strong>{tr("Mode demo publik:", "Public demo mode:")}</strong>{" "}
+          {tr(
+            "Semua pengunjung dapat menjalankan aksi; audit dicatat sebagai Public Operator. ",
+            "Every visitor can run actions; the audit trail records Public Operator. "
+          )}
           <strong>{tr("Batas keselamatan:", "Safety boundary:")}</strong>{" "}
           {tr(
             "severity/FRP satelit hanya konteks observasi. Sistem tidak otomatis menyatakan kebakaran atau prioritas; keputusan manusia wajib disertai alasan dan masuk ke histori.",
@@ -560,7 +571,7 @@ export default function IncidentsPage() {
             {detailLoading && <p className="text-sm text-gray-500">{tr("Memuat detail insiden…", "Loading incident…")}</p>}
             {!detailLoading && !detail && <p className="text-sm text-gray-500">{tr("Pilih insiden dari antrean.", "Select an incident from the queue.")}</p>}
             {!detailLoading && detail && (
-              <div className="space-y-5">
+              <div data-testid="incident-detail" className="space-y-5">
                 <div className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-100 pb-4">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -586,10 +597,10 @@ export default function IncidentsPage() {
                 </div>
 
                 <div className="grid gap-3 lg:grid-cols-2">
-                  <DecisionForm key={`${detail.id}-${detail.rowVersion}-verify`} title={tr("1. Verifikasi manusia", "1. Human verification")} choices={VERIFICATIONS.map((value) => ({ value, label: label(value, language) }))} initialValue={detail.verification === "unassessed" ? "needs_more_information" : detail.verification} buttonLabel={tr("Simpan verifikasi", "Save verification")} reasonPlaceholder={tr("Bukti dan alasan keputusan (min. 10 karakter)", "Evidence and decision reason (min. 10 characters)")} onSubmit={(value, reason) => mutate("verification", value, reason)} />
-                  <DecisionForm key={`${detail.id}-${detail.rowVersion}-priority`} title={tr("2. Prioritas manual", "2. Manual priority")} choices={PRIORITIES.map((value) => ({ value, label: label(value, language) }))} initialValue={detail.priority === "unassessed" ? "medium" : detail.priority} buttonLabel={tr("Simpan prioritas", "Save priority")} reasonPlaceholder={tr("Dampak, urgensi, kekuatan bukti, kebaruan", "Impact, urgency, evidence strength and freshness")} onSubmit={(value, reason) => mutate("priority", value, reason)} />
-                  <DecisionForm key={`${detail.id}-${detail.rowVersion}-assign`} title={tr("3. Penugasan tim", "3. Team assignment")} choices={teams.filter((team) => team.availability !== "unavailable").map((team) => ({ value: team.id, label: `${team.name} · ${team.area}` }))} initialValue={detail.assignedTeamId ?? teams.find((team) => team.availability !== "unavailable")?.id ?? ""} buttonLabel={tr("Tugaskan tim", "Assign team")} reasonPlaceholder={tr("Alasan dan ruang lingkup penugasan", "Assignment reason and scope")} onSubmit={(value, reason) => mutate("assignment", value, reason)} />
-                  <DecisionForm key={`${detail.id}-${detail.rowVersion}-status`} title={tr("4. Progres penanganan", "4. Response progress")} choices={STATUSES.map((value) => ({ value, label: label(value, language) }))} initialValue={detail.status === "new" ? "triaging" : detail.status} buttonLabel={tr("Perbarui progres", "Update progress")} reasonPlaceholder={tr("Kondisi lapangan dan dasar perubahan", "Field conditions and basis for change")} onSubmit={(value, reason) => mutate("status", value, reason)} />
+                  <DecisionForm key={`${detail.id}-${detail.rowVersion}-verify`} title={tr("1. Verifikasi manusia", "1. Human verification")} choices={VERIFICATIONS.map((value) => ({ value, label: label(value, language) }))} initialValue={detail.verification === "unassessed" ? "needs_more_information" : detail.verification} buttonLabel={tr("Simpan verifikasi", "Save verification")} reasonPlaceholder={tr("Bukti dan alasan keputusan (min. 10 karakter)", "Evidence and decision reason (min. 10 characters)")} disabled={decisionPending || creatingSource !== null} onSubmit={(value, reason) => mutate("verification", value, reason)} />
+                  <DecisionForm key={`${detail.id}-${detail.rowVersion}-priority`} title={tr("2. Prioritas manual", "2. Manual priority")} choices={PRIORITIES.map((value) => ({ value, label: label(value, language) }))} initialValue={detail.priority === "unassessed" ? "medium" : detail.priority} buttonLabel={tr("Simpan prioritas", "Save priority")} reasonPlaceholder={tr("Dampak, urgensi, kekuatan bukti, kebaruan", "Impact, urgency, evidence strength and freshness")} disabled={decisionPending || creatingSource !== null} onSubmit={(value, reason) => mutate("priority", value, reason)} />
+                  <DecisionForm key={`${detail.id}-${detail.rowVersion}-assign`} title={tr("3. Penugasan tim", "3. Team assignment")} choices={teams.filter((team) => team.availability !== "unavailable").map((team) => ({ value: team.id, label: `${team.name} · ${team.area}` }))} initialValue={detail.assignedTeamId ?? teams.find((team) => team.availability !== "unavailable")?.id ?? ""} buttonLabel={tr("Tugaskan tim", "Assign team")} reasonPlaceholder={tr("Alasan dan ruang lingkup penugasan", "Assignment reason and scope")} disabled={decisionPending || creatingSource !== null} onSubmit={(value, reason) => mutate("assignment", value, reason)} />
+                  <DecisionForm key={`${detail.id}-${detail.rowVersion}-status`} title={tr("4. Progres penanganan", "4. Response progress")} choices={STATUSES.map((value) => ({ value, label: label(value, language) }))} initialValue={detail.status === "new" ? "triaging" : detail.status} buttonLabel={tr("Perbarui progres", "Update progress")} reasonPlaceholder={tr("Kondisi lapangan dan dasar perubahan", "Field conditions and basis for change")} disabled={decisionPending || creatingSource !== null} onSubmit={(value, reason) => mutate("status", value, reason)} />
                 </div>
 
                 <div>

@@ -1,37 +1,18 @@
-"""Server-to-server report access and a small submission rate limiter.
-
-Supabase Auth validates named officer accounts in Next.js. Only after that
-check does the Next.js server forward OFFICER_ACCESS_KEY as X-Officer-Key to
-private Python report endpoints. The value is a backend bridge credential,
-not a browser login password. It fails closed when the key is unset.
-"""
+"""Small in-memory submission rate limiter for the public demo."""
 
 from __future__ import annotations
 
-import hmac
 import os
 import threading
 import time
 from collections import defaultdict, deque
-
-
-def officer_key_configured() -> bool:
-    return bool(os.getenv("OFFICER_ACCESS_KEY", "").strip())
-
-
-def is_officer(presented_key: str | None) -> bool:
-    expected = os.getenv("OFFICER_ACCESS_KEY", "").strip()
-    if not expected or not presented_key:
-        return False
-    return hmac.compare_digest(presented_key.strip().encode(), expected.encode())
-
 
 class SlidingWindowLimiter:
     """In-memory limiter: at most `limit` hits per key within `window_s`.
 
     Per-process only, so it resets on restart and is not shared between
     instances. Good enough to stop one browser or one IP from flooding the
-    officer queue during a demo; not a substitute for a real gateway limit.
+    public queue during a demo; not a substitute for a real gateway limit.
     """
 
     def __init__(self, limit: int, window_s: float):

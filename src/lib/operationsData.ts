@@ -10,7 +10,7 @@ import type {
   OperationNotification,
   OperationTeam,
 } from "@/types";
-import { requireOfficerState } from "@/lib/officerSession";
+import { createPublicClient } from "@/lib/supabase/server";
 
 const incidentCreateSchema = z.object({
   sourceType: z.enum(["satellite", "citizen", "manual"]),
@@ -107,6 +107,14 @@ function privateResponse(body: unknown, status = 200): Response {
     status,
     headers: { "Cache-Control": "private, no-store" },
   });
+}
+
+function operationsClient(): SupabaseClient | Response {
+  try {
+    return createPublicClient();
+  } catch {
+    return privateResponse({ error: "Supabase is not configured.", code: "SUPABASE_UNAVAILABLE" }, 503);
+  }
 }
 
 function validationResponse(error: z.ZodError): Response {
@@ -228,8 +236,8 @@ async function getIncident(
 }
 
 export async function listOperationIncidents(request: Request): Promise<Response> {
-  const access = await requireOfficerState();
-  if ("response" in access) return access.response;
+  const client = operationsClient();
+  if (client instanceof Response) return client;
   const incoming = new URL(request.url);
   const status = incoming.searchParams.get("status");
   const priority = incoming.searchParams.get("priority");
@@ -241,8 +249,8 @@ export async function listOperationIncidents(request: Request): Promise<Response
   }
 
   const [incidentResult, teamResult] = await Promise.all([
-    loadIncidentRows(access.supabase),
-    loadTeams(access.supabase),
+    loadIncidentRows(client),
+    loadTeams(client),
   ]);
   if (incidentResult.error || teamResult.error) return databaseErrorResponse(incidentResult.error ?? teamResult.error);
   const teamNames = new Map(teamResult.rows.map((team) => [team.id, team.name]));
@@ -261,35 +269,35 @@ export async function listOperationIncidents(request: Request): Promise<Response
 }
 
 export async function createOperationIncident(request: Request): Promise<Response> {
-  const access = await requireOfficerState();
-  if ("response" in access) return access.response;
+  const client = operationsClient();
+  if (client instanceof Response) return client;
   const payload = await readPayload(request);
   if (payload instanceof Response) return payload;
   const parsed = incidentCreateSchema.safeParse(payload);
   if (!parsed.success) return validationResponse(parsed.error);
-  const result = await access.supabase.rpc("create_operation_incident", { payload: parsed.data });
+  const result = await client.rpc("create_operation_incident", { payload: parsed.data });
   if (result.error) return databaseErrorResponse(result.error);
-  const loaded = await getIncident(access.supabase, String(result.data), true);
+  const loaded = await getIncident(client, String(result.data), true);
   if (loaded.error) return databaseErrorResponse(loaded.error);
   return loaded.incident ? privateResponse(loaded.incident, 201) : privateResponse({ error: "Created incident was not found." }, 502);
 }
 
 export async function readOperationIncident(id: string): Promise<Response> {
-  const access = await requireOfficerState();
-  if ("response" in access) return access.response;
-  const loaded = await getIncident(access.supabase, id, true);
+  const client = operationsClient();
+  if (client instanceof Response) return client;
+  const loaded = await getIncident(client, id, true);
   if (loaded.error) return databaseErrorResponse(loaded.error);
   return loaded.incident ? privateResponse(loaded.incident) : privateResponse({ error: "Incident not found.", code: "NOT_FOUND" }, 404);
 }
 
 export async function mutateOperationIncident(request: Request, id: string): Promise<Response> {
-  const access = await requireOfficerState();
-  if ("response" in access) return access.response;
+  const client = operationsClient();
+  if (client instanceof Response) return client;
   const payload = await readPayload(request);
   if (payload instanceof Response) return payload;
   const parsed = incidentMutationSchema.safeParse(payload);
   if (!parsed.success) return validationResponse(parsed.error);
-  const result = await access.supabase.rpc("mutate_operation_incident", {
+  const result = await client.rpc("mutate_operation_incident", {
     target: id,
     expected_version: parsed.data.expectedVersion,
     operation: parsed.data.action,
@@ -297,40 +305,40 @@ export async function mutateOperationIncident(request: Request, id: string): Pro
     reason: parsed.data.reason,
   });
   if (result.error) return databaseErrorResponse(result.error);
-  const loaded = await getIncident(access.supabase, String(result.data), true);
+  const loaded = await getIncident(client, String(result.data), true);
   if (loaded.error) return databaseErrorResponse(loaded.error);
   return loaded.incident ? privateResponse(loaded.incident) : privateResponse({ error: "Updated incident was not found." }, 502);
 }
 
 export async function listOperationTeams(): Promise<Response> {
-  const access = await requireOfficerState();
-  if ("response" in access) return access.response;
-  const result = await loadTeams(access.supabase);
+  const client = operationsClient();
+  if (client instanceof Response) return client;
+  const result = await loadTeams(client);
   if (result.error) return databaseErrorResponse(result.error);
   return privateResponse({ teams: result.rows.map(mapTeam) });
 }
 
 export async function createOperationTeam(request: Request): Promise<Response> {
-  const access = await requireOfficerState();
-  if ("response" in access) return access.response;
+  const client = operationsClient();
+  if (client instanceof Response) return client;
   const payload = await readPayload(request);
   if (payload instanceof Response) return payload;
   const parsed = teamCreateSchema.safeParse(payload);
   if (!parsed.success) return validationResponse(parsed.error);
-  const result = await access.supabase.rpc("create_operation_team", { payload: parsed.data });
+  const result = await client.rpc("create_operation_team", { payload: parsed.data });
   if (result.error) return databaseErrorResponse(result.error);
-  const teamResult = await access.supabase.from("operation_teams").select("*").eq("id", String(result.data)).maybeSingle();
+  const teamResult = await client.from("operation_teams").select("*").eq("id", String(result.data)).maybeSingle();
   if (teamResult.error) return databaseErrorResponse(teamResult.error);
   return teamResult.data ? privateResponse(mapTeam(teamResult.data as TeamRow), 201) : privateResponse({ error: "Created team was not found." }, 502);
 }
 
 export async function listOperationNotifications(): Promise<Response> {
-  const access = await requireOfficerState();
-  if ("response" in access) return access.response;
+  const client = operationsClient();
+  if (client instanceof Response) return client;
   const [notificationResult, incidentResult, teamResult] = await Promise.all([
-    access.supabase.from("operation_notifications").select("*").order("created_at", { ascending: false }).limit(30),
-    loadIncidentRows(access.supabase),
-    loadTeams(access.supabase),
+    client.from("operation_notifications").select("*").order("created_at", { ascending: false }).limit(30),
+    loadIncidentRows(client),
+    loadTeams(client),
   ]);
   if (notificationResult.error || incidentResult.error || teamResult.error) {
     return databaseErrorResponse(notificationResult.error ?? incidentResult.error ?? teamResult.error);

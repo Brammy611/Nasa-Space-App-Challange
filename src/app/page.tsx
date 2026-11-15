@@ -234,7 +234,7 @@ export default function LandingPage() {
           <Link href="/data-model" className="hover:text-[var(--color-text-main)] transition-colors">
             {t("nav.aboutData")}
           </Link>
-          <Link href="/officer-login?next=%2Fcitizen-reports" className="hover:text-[var(--color-text-main)] transition-colors">
+          <Link href="/incidents" className="hover:text-[var(--color-text-main)] transition-colors">
             {t("nav.loginOfficer")}
           </Link>
           <LanguageToggle />

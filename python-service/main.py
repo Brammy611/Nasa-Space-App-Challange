@@ -10,7 +10,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
 from fire_pipeline import reports as reports_store
-from fire_pipeline.access import is_officer, report_limiter
+from fire_pipeline.access import report_limiter
 from fire_pipeline.admin_lookup import get_admin_index, parse_polygon
 from fire_pipeline.correlation import correlate_report
 from fire_pipeline.historical import available_references, compare_live_to_baseline, load_calendar_summary, load_map_summary
@@ -132,12 +132,6 @@ def _client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
 
 
-def _can_see_full_report(report: dict, submitter_token: str | None, officer_key: str | None) -> bool:
-    if is_officer(officer_key):
-        return True
-    return bool(submitter_token) and submitter_token == report.get("submitterToken")
-
-
 class ReportCreateRequest(BaseModel):
     lat: float
     lon: float
@@ -150,18 +144,6 @@ class ReportCreateRequest(BaseModel):
 class ReportStatusUpdateRequest(BaseModel):
     status: str
     reviewNote: str | None = None
-
-
-def _require_officer(officer_key: str | None) -> None:
-    if not is_officer(officer_key):
-        raise HTTPException(status_code=401, detail="Officer access required")
-
-
-def _officer_actor(officer_name: str | None) -> str:
-    """A display label for the audit timeline, trusted only after the
-    shared officer key has been validated by the calling endpoint."""
-    value = (officer_name or "Petugas").strip()
-    return value[:80] or "Petugas"
 
 
 @app.get("/api/health")
@@ -463,50 +445,33 @@ def list_public_reports() -> dict:
 def list_reports(
     submitterToken: str | None = None,
     status: str | None = None,
-    x_officer_key: str | None = Header(default=None),
 ) -> dict:
-    """Officers get every report. A citizen gets only the reports filed with
-    their own submitter token. Anyone else gets 401: use /api/reports/public."""
-    if is_officer(x_officer_key):
-        return {"reports": reports_store.list_reports(submitter_token=submitterToken, status=status)}
-    if submitterToken:
-        return {"reports": reports_store.list_reports(submitter_token=submitterToken, status=status)}
-    raise HTTPException(status_code=401, detail="Officer access required to list all reports")
+    """Public demo list. An optional token still narrows results to one reporter."""
+    return {"reports": reports_store.list_reports(submitter_token=submitterToken, status=status)}
 
 
 @app.get("/api/reports/{report_id}")
 def get_report(
     report_id: str,
-    submitterToken: str | None = None,
-    x_officer_key: str | None = Header(default=None),
 ) -> dict:
-    """Full detail for the reporter (matching submitterToken) and officers.
-    Anyone else sees a verified report in its public shape, and gets 404
-    for reports that are not verified (so unreviewed reports never leak)."""
+    """Full report detail for the public demo review surface."""
     report = reports_store.get_report(report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
-    if _can_see_full_report(report, submitterToken, x_officer_key):
-        return report
-    if report["status"] in reports_store.PUBLIC_STATUSES:
-        return reports_store.public_view(report)
-    raise HTTPException(status_code=404, detail="Report not found")
+    return report
 
 
 @app.patch("/api/reports/{report_id}")
 def update_report(
     report_id: str,
     payload: ReportStatusUpdateRequest,
-    x_officer_key: str | None = Header(default=None),
 ) -> dict:
     """Update a report's review status (e.g. moving it to under_review,
     verified, or rejected) and optionally attach a reviewer note.
 
-    Officers only. A verified report raises the area status of nearby
-    citizens to "Awas", so this must not be open to anyone with the URL.
+    Public demo mode. A verified report raises the area status of nearby
+    citizens to "Awas".
     """
-    if not is_officer(x_officer_key):
-        raise HTTPException(status_code=401, detail="Officer access required")
     try:
         updated = reports_store.update_report_status(report_id, payload.status, review_note=payload.reviewNote)
     except ValueError as exc:
@@ -519,15 +484,10 @@ def update_report(
 @app.get("/api/reports/{report_id}/photo")
 def get_report_photo(
     report_id: str,
-    submitterToken: str | None = None,
-    x_officer_key: str | None = Header(default=None),
 ):
-    """Photos may show faces, houses or number plates, so only the reporter
-    and officers can load them -- never the public, even once verified."""
+    """Photo access for the public demo review surface."""
     report = reports_store.get_report(report_id)
-    if report is None or not report.get("photoFilename") or not _can_see_full_report(
-        report, submitterToken, x_officer_key
-    ):
+    if report is None or not report.get("photoFilename"):
         raise HTTPException(status_code=404, detail="No photo for this report")
     path = os.path.join(_report_photos_dir(), report["photoFilename"])
     if not os.path.exists(path):
