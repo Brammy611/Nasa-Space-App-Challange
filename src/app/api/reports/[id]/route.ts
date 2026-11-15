@@ -21,7 +21,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/reports/[id]
 
   try {
     const upstream = await fetch(upstreamUrl, {
-      headers: backendHeaders(request),
+      headers: await backendHeaders(request),
       cache: "no-store",
       signal: AbortSignal.timeout(30_000),
     });
@@ -48,14 +48,14 @@ export async function GET(request: Request, ctx: RouteContext<"/api/reports/[id]
 
 /**
  * Proxies PATCH /api/reports/{id} to update a report's review status.
- * Officers only: checked here (signed-in cookie) and again on the backend
- * (X-Officer-Key), because a "verified" report raises nearby citizens' area
- * status to "Awas".
+ * Officers only: the Supabase user/profile is checked here, then the backend
+ * verifies a server-only X-Officer-Key bridge credential. A "verified" report
+ * raises nearby citizens' area status to "Awas".
  */
 export async function PATCH(request: Request, ctx: RouteContext<"/api/reports/[id]">) {
   const { id } = await ctx.params;
 
-  if (!isOfficerRequest(request)) {
+  if (!(await isOfficerRequest())) {
     return Response.json({ error: "Officer sign-in required.", code: "OFFICER_AUTH_REQUIRED" }, { status: 401 });
   }
 
@@ -69,7 +69,7 @@ export async function PATCH(request: Request, ctx: RouteContext<"/api/reports/[i
   try {
     const upstream = await fetch(`${PYTHON_API}/api/reports/${encodeURIComponent(id)}`, {
       method: "PATCH",
-      headers: backendHeaders(request, { "Content-Type": "application/json" }),
+      headers: await backendHeaders(request, { "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
       signal: AbortSignal.timeout(30_000),

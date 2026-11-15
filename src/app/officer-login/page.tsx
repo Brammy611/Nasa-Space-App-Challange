@@ -16,8 +16,8 @@ function OfficerLoginForm() {
   const { tr } = useTranslation();
   const searchParams = useSearchParams();
   const next = safeNext(searchParams.get("next"));
-  const [displayName, setDisplayName] = useState("");
-  const [passcode, setPasscode] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,18 +29,17 @@ function OfficerLoginForm() {
       const response = await fetch("/api/officer/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ displayName, passcode }),
+        body: JSON.stringify({ email, password }),
       });
       if (response.ok) {
         window.location.assign(next);
         return;
       }
       const body = (await response.json().catch(() => ({}))) as { code?: string };
-      if (body.code === "WRONG_PASSCODE") setError(tr("Kode akses salah.", "Wrong access code."));
-      else if (body.code === "INVALID_DISPLAY_NAME") setError(tr("Nama petugas harus 2–80 karakter.", "Officer name must be 2-80 characters."));
-      else if (body.code === "TOO_MANY_ATTEMPTS") setError(tr("Terlalu banyak percobaan. Coba lagi beberapa menit lagi.", "Too many attempts. Try again in a few minutes."));
+      if (body.code === "WRONG_CREDENTIALS") setError(tr("Email atau kata sandi salah.", "Incorrect email or password."));
+      else if (body.code === "OFFICER_ACCESS_DENIED") setError(tr("Akun petugas belum aktif. Hubungi koordinator.", "Officer account is not active. Contact your coordinator."));
       else if (body.code === "OFFICER_AUTH_DISABLED")
-        setError(tr("Login petugas belum diaktifkan di server (OFFICER_ACCESS_KEY belum diisi).", "Officer sign-in is not enabled on the server (OFFICER_ACCESS_KEY is not set)."));
+        setError(tr("Supabase Auth belum dikonfigurasi di server.", "Supabase Auth is not configured on the server."));
       else setError(tr("Gagal masuk. Coba lagi.", "Sign-in failed. Please try again."));
     } catch {
       setError(tr("Gagal terhubung ke server.", "Could not reach the server."));
@@ -56,39 +55,37 @@ function OfficerLoginForm() {
         <h1 className="text-xl font-bold text-gray-900">{tr("Masuk sebagai petugas", "Sign in as officer")}</h1>
         <p className="text-xs leading-relaxed text-gray-500">
           {tr(
-            "Untuk meninjau laporan dan menjalankan operasi lapangan. Nama Anda dicatat di histori perubahan; kode akses dibagikan oleh koordinator tim.",
-            "For reviewing reports and managing field operations. Your name is recorded in the change history; the access code is shared by your team coordinator."
+            "Gunakan akun Supabase petugas untuk meninjau laporan dan menjalankan operasi lapangan. Identitas akun dicatat pada setiap perubahan.",
+            "Use your Supabase officer account to review reports and run field operations. Your account identity is recorded on every change."
           )}
         </p>
       </div>
 
       <div className="space-y-1.5">
-        <label htmlFor="displayName" className="text-xs font-semibold text-gray-700">
-          {tr("Nama petugas", "Officer name")}
+        <label htmlFor="email" className="text-xs font-semibold text-gray-700">
+          Email
         </label>
         <input
-          id="displayName"
-          type="text"
-          autoComplete="name"
-          minLength={2}
-          maxLength={80}
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
+          id="email"
+          type="email"
+          autoComplete="username"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
           required
           className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm focus:border-[#075640] focus:outline-none focus:ring-2 focus:ring-[#075640]/20"
         />
       </div>
 
       <div className="space-y-1.5">
-        <label htmlFor="passcode" className="text-xs font-semibold text-gray-700">
-          {tr("Kode akses", "Access code")}
+        <label htmlFor="password" className="text-xs font-semibold text-gray-700">
+          {tr("Kata sandi", "Password")}
         </label>
         <input
-          id="passcode"
+          id="password"
           type="password"
           autoComplete="current-password"
-          value={passcode}
-          onChange={(e) => setPasscode(e.target.value)}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
           required
           className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm focus:border-[#075640] focus:outline-none focus:ring-2 focus:ring-[#075640]/20"
         />
@@ -102,7 +99,7 @@ function OfficerLoginForm() {
 
       <button
         type="submit"
-        disabled={submitting || !passcode || displayName.trim().length < 2}
+        disabled={submitting || !email.trim() || !password}
         className="w-full rounded-xl bg-[#075640] py-2.5 text-sm font-bold text-white transition hover:bg-[#06442f] disabled:opacity-50"
       >
         {submitting ? tr("Memeriksa…", "Checking…") : tr("Masuk", "Sign in")}

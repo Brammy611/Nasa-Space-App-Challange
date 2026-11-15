@@ -1,72 +1,42 @@
-import {
-  OFFICER_COOKIE,
-  OFFICER_SESSION_MAX_AGE_S,
-  isValidPasscode,
-  normalizeOfficerName,
-  officerAuthConfigured,
-  officerSessionValue,
-} from "@/lib/officerAuth";
+import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-// Small per-instance brake on passcode guessing.
-const attempts = new Map<string, number[]>();
-const MAX_ATTEMPTS = 8;
-const WINDOW_MS = 10 * 60 * 1000;
-
-function tooManyAttempts(ip: string): boolean {
-  const now = Date.now();
-  const recent = (attempts.get(ip) ?? []).filter((t) => now - t < WINDOW_MS);
-  recent.push(now);
-  attempts.set(ip, recent);
-  return recent.length > MAX_ATTEMPTS;
-}
-
 export async function POST(request: Request) {
-  if (!officerAuthConfigured()) {
-    return Response.json(
-      { error: "Officer sign-in is not configured on this server (OFFICER_ACCESS_KEY).", code: "OFFICER_AUTH_DISABLED" },
-      { status: 503 }
-    );
-  }
-
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  if (tooManyAttempts(ip)) {
-    return Response.json({ error: "Too many attempts. Try again in a few minutes.", code: "TOO_MANY_ATTEMPTS" }, { status: 429 });
-  }
-
-  let passcode: unknown;
-  let displayName: unknown;
+  let email: unknown;
+  let password: unknown;
   try {
-    const body = (await request.json()) as { passcode?: unknown; displayName?: unknown };
-    passcode = body.passcode;
-    displayName = body.displayName;
+    const body = (await request.json()) as { email?: unknown; password?: unknown };
+    email = body.email;
+    password = body.password;
   } catch {
     return Response.json({ error: "Invalid JSON body.", code: "INVALID_BODY" }, { status: 400 });
   }
 
-  if (!isValidPasscode(passcode)) {
-    return Response.json({ error: "Wrong passcode.", code: "WRONG_PASSCODE" }, { status: 401 });
+  if (typeof email !== "string" || typeof password !== "string" || !email.trim() || !password) {
+    return Response.json({ error: "Email and password are required.", code: "INVALID_CREDENTIALS" }, { status: 422 });
   }
 
-  const officerName = normalizeOfficerName(displayName);
-  if (!officerName) {
-    return Response.json(
-      { error: "Officer name must be 2-80 characters.", code: "INVALID_DISPLAY_NAME" },
-      { status: 422 }
-    );
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (error || !data.user) {
+      return Response.json({ error: "Email or password is incorrect.", code: "WRONG_CREDENTIALS" }, { status: 401 });
+    }
+
+    const profileResult = await supabase
+      .from("profiles")
+      .select("role, status")
+      .eq("id", data.user.id)
+      .single();
+    const profile = profileResult.data as { role?: unknown; status?: unknown } | null;
+    if (profileResult.error || profile?.status !== "active" || profile.role === "pending") {
+      await supabase.auth.signOut();
+      return Response.json({ error: "Officer account is not active.", code: "OFFICER_ACCESS_DENIED" }, { status: 403 });
+    }
+
+    return Response.json({ ok: true }, { headers: { "Cache-Control": "private, no-store" } });
+  } catch {
+    return Response.json({ error: "Supabase Auth is not configured.", code: "OFFICER_AUTH_DISABLED" }, { status: 503 });
   }
-
-  const cookie = [
-    `${OFFICER_COOKIE}=${officerSessionValue(officerName)}`,
-    "Path=/",
-    "HttpOnly",
-    "SameSite=Lax",
-    `Max-Age=${OFFICER_SESSION_MAX_AGE_S}`,
-    process.env.NODE_ENV === "production" ? "Secure" : "",
-  ]
-    .filter(Boolean)
-    .join("; ");
-
-  return Response.json({ ok: true }, { headers: { "Set-Cookie": cookie, "Cache-Control": "no-store" } });
 }

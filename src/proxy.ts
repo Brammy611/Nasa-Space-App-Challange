@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { OFFICER_COOKIE, isValidOfficerCookie } from "@/lib/officerAuth";
+import { updateSupabaseSession } from "@/lib/supabase/proxy";
 
 /**
  * Officer-only pages. Citizen reports hold reporters' exact locations, photos
@@ -11,10 +11,9 @@ import { OFFICER_COOKIE, isValidOfficerCookie } from "@/lib/officerAuth";
  * The satellite-data pages (/operator, /calendar, /map, ...) stay public on
  * purpose: they only show NASA data that is public anyway.
  */
-export function proxy(request: NextRequest) {
-  if (isValidOfficerCookie(request.cookies.get(OFFICER_COOKIE)?.value)) {
-    return NextResponse.next();
-  }
+export async function proxy(request: NextRequest) {
+  const { response, userId } = await updateSupabaseSession(request);
+  if (userId) return response;
   const loginUrl = new URL("/officer-login", request.url);
   loginUrl.searchParams.set("next", request.nextUrl.pathname + request.nextUrl.search);
   return NextResponse.redirect(loginUrl);

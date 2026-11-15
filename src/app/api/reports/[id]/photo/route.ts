@@ -25,7 +25,7 @@ export async function GET(
 
   try {
     const upstream = await fetch(upstreamUrl, {
-      headers: backendHeaders(request),
+      headers: await backendHeaders(request),
       cache: "no-store",
       signal: AbortSignal.timeout(30_000),
     });

@@ -2,8 +2,6 @@ import base64
 import binascii
 import io
 import os
-from typing import Literal
-
 import pandas as pd
 
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -11,7 +9,6 @@ from fastapi.responses import FileResponse
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
-from fire_pipeline import operations as operations_store
 from fire_pipeline import reports as reports_store
 from fire_pipeline.access import is_officer, report_limiter
 from fire_pipeline.admin_lookup import get_admin_index, parse_polygon
@@ -153,33 +150,6 @@ class ReportCreateRequest(BaseModel):
 class ReportStatusUpdateRequest(BaseModel):
     status: str
     reviewNote: str | None = None
-
-
-class IncidentCreateRequest(BaseModel):
-    sourceType: Literal["satellite", "citizen", "manual"]
-    sourceId: str | None = Field(default=None, max_length=300)
-    sourceSnapshot: dict | None = None
-    title: str = Field(min_length=3, max_length=200)
-    description: str | None = Field(default=None, max_length=2000)
-    lat: float = Field(ge=-90, le=90)
-    lon: float = Field(ge=-180, le=180)
-    adminLabel: str | None = Field(default=None, max_length=300)
-    reason: str = Field(min_length=10, max_length=2000)
-
-
-class IncidentMutationRequest(BaseModel):
-    expectedVersion: int = Field(ge=1)
-    action: Literal["verification", "priority", "assignment", "status"]
-    value: str = Field(min_length=1, max_length=100)
-    reason: str = Field(min_length=10, max_length=2000)
-
-
-class TeamCreateRequest(BaseModel):
-    name: str = Field(min_length=3, max_length=150)
-    area: str = Field(min_length=2, max_length=200)
-    leadName: str = Field(min_length=2, max_length=100)
-    contact: str | None = Field(default=None, max_length=200)
-    availability: Literal["available", "busy", "unavailable", "unknown"] = "available"
 
 
 def _require_officer(officer_key: str | None) -> None:
@@ -415,121 +385,6 @@ def region(lat: float, lon: float) -> dict:
             "validOn": index.meta.get("dataset_valid_on"),
         },
     }
-
-
-@app.get("/api/operations/incidents")
-def list_incidents(
-    status: str | None = None,
-    priority: str | None = None,
-    x_officer_key: str | None = Header(default=None),
-) -> dict:
-    """Officer work queue. Satellite severity is source context only;
-    verification and priority stay unassessed until an officer records a
-    reasoned decision."""
-    _require_officer(x_officer_key)
-    try:
-        return {
-            "incidents": operations_store.list_incidents(status=status, priority=priority),
-            "summary": operations_store.incident_summary(),
-        }
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-
-@app.post("/api/operations/incidents", status_code=201)
-def create_incident(
-    payload: IncidentCreateRequest,
-    x_officer_key: str | None = Header(default=None),
-    x_officer_name: str | None = Header(default=None),
-) -> dict:
-    _require_officer(x_officer_key)
-    try:
-        return operations_store.create_incident(
-            source_type=payload.sourceType,
-            source_id=payload.sourceId,
-            source_snapshot=payload.sourceSnapshot,
-            title=payload.title,
-            description=payload.description,
-            lat=payload.lat,
-            lon=payload.lon,
-            admin_label=payload.adminLabel,
-            actor=_officer_actor(x_officer_name),
-            reason=payload.reason,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-
-@app.get("/api/operations/incidents/{incident_id}")
-def get_incident(
-    incident_id: str,
-    x_officer_key: str | None = Header(default=None),
-) -> dict:
-    _require_officer(x_officer_key)
-    incident = operations_store.get_incident(incident_id)
-    if incident is None:
-        raise HTTPException(status_code=404, detail="Incident not found")
-    return incident
-
-
-@app.patch("/api/operations/incidents/{incident_id}")
-def mutate_incident(
-    incident_id: str,
-    payload: IncidentMutationRequest,
-    x_officer_key: str | None = Header(default=None),
-    x_officer_name: str | None = Header(default=None),
-) -> dict:
-    _require_officer(x_officer_key)
-    try:
-        return operations_store.mutate_incident(
-            incident_id,
-            expected_version=payload.expectedVersion,
-            action=payload.action,
-            value=payload.value,
-            reason=payload.reason,
-            actor=_officer_actor(x_officer_name),
-        )
-    except operations_store.OperationNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except operations_store.OperationConflictError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-
-@app.get("/api/operations/teams")
-def list_operation_teams(x_officer_key: str | None = Header(default=None)) -> dict:
-    _require_officer(x_officer_key)
-    return {"teams": operations_store.list_teams()}
-
-
-@app.post("/api/operations/teams", status_code=201)
-def create_operation_team(
-    payload: TeamCreateRequest,
-    x_officer_key: str | None = Header(default=None),
-    x_officer_name: str | None = Header(default=None),
-) -> dict:
-    _require_officer(x_officer_key)
-    try:
-        return operations_store.create_team(
-            name=payload.name,
-            area=payload.area,
-            lead_name=payload.leadName,
-            contact=payload.contact,
-            availability=payload.availability,
-            actor=_officer_actor(x_officer_name),
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-
-@app.get("/api/operations/notifications")
-def list_operation_notifications(
-    limit: int = 30,
-    x_officer_key: str | None = Header(default=None),
-) -> dict:
-    _require_officer(x_officer_key)
-    return {"notifications": operations_store.list_notifications(limit=limit)}
 
 
 @app.post("/api/reports", status_code=201)

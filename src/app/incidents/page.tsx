@@ -191,7 +191,8 @@ function TeamForm({ onCreated }: { onCreated: (team: OperationTeam) => void }) {
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     setBusy(true);
     setError(null);
     try {
@@ -207,7 +208,7 @@ function TeamForm({ onCreated }: { onCreated: (team: OperationTeam) => void }) {
         }),
       });
       onCreated(team);
-      event.currentTarget.reset();
+      formElement.reset();
       setOpen(false);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : tr("Gagal membuat tim.", "Could not create team."));

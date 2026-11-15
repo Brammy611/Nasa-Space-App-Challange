@@ -100,7 +100,7 @@ Aturan privasi laporan:
 
 Severity dan FRP satelit disimpan sebagai konteks sumber, tetapi **tidak pernah otomatis menjadi verifikasi atau prioritas**. Setiap perubahan wajib menyertakan alasan minimal 10 karakter, memakai versi baris untuk mencegah petugas menimpa perubahan petugas lain, dan masuk ke timeline yang tidak dapat diedit. Penugasan, prioritas tinggi/kritis, dan perubahan progres juga membuat notifikasi operasional.
 
-Insiden, tim, timeline, dan notifikasi disimpan di database persisten yang sama dengan laporan warga (`reports.sqlite`), sehingga konfigurasi Render Disk yang sudah ada langsung melindungi data workflow ini.
+Insiden, tim, timeline, notifikasi, akun petugas, dan role akses disimpan di Supabase Postgres. Semua tabel operasional memakai RLS; perubahan hanya lewat RPC tervalidasi yang memeriksa akun aktif dan role, memakai optimistic locking, lalu menulis audit trail secara atomik. `reports.sqlite` tetap menjadi store laporan warga pada pipeline Python, dan Next.js menjembatani petugas Supabase yang sudah tervalidasi ke endpoint privat laporan warga.
 
 ### 6. Status wilayah untuk warga
 
@@ -172,16 +172,17 @@ Arsip FIRMS 2000–2026 (offline)      ──┼──► FastAPI (python-servic
 Batas wilayah BPS via OCHA (offline) ──┘     fire_pipeline/
                                               ├─ historical.sqlite  (arsip, read-only)
                                               ├─ admin_boundaries.sqlite (read-only)
-                                              └─ reports.sqlite     (laporan warga + operasi, read-write)
+                                              └─ reports.sqlite     (laporan warga, read-write)
+Supabase Auth + Postgres              ─────────────► akun petugas, RLS, insiden, tim, audit, notifikasi
 ```
 
 - **Frontend:** Next.js App Router, React, TypeScript, Tailwind, Leaflet.
 - **Backend:** Python 3.12, FastAPI, pandas, numpy, shapely.
-- **Penyimpanan:** SQLite saja. Kami sengaja tidak menambah layanan berbayar.
-- **Login petugas:** satu kode akses bersama (`OFFICER_ACCESS_KEY`), disetel sama di Vercel dan Render. Petugas juga mengisi nama; nama itu ditandatangani di cookie HttpOnly dan diteruskan ke backend sebagai label aktor pada timeline insiden. Halaman `/citizen-reports`, `/incidents`, dan API privat memeriksa cookie di frontend serta `X-Officer-Key` di backend. Kalau kunci kosong, tidak ada yang bisa masuk. Halaman data satelit tetap publik.
+- **Penyimpanan:** SQLite untuk arsip dan laporan warga; Supabase Postgres untuk data operasional.
+- **Login petugas:** akun email/password Supabase Auth per petugas. Role dan status akun dibaca dari `public.profiles`, bukan metadata JWT yang dapat diubah pengguna. Proxy hanya melakukan redirect optimistis; route API memvalidasi user dan RLS menegakkan akses di sumber data. `OFFICER_ACCESS_KEY` hanya kredensial server-ke-server Next.js → Python untuk data laporan warga privat, bukan password login.
 - **Identitas pelapor:** token acak yang disimpan di browser, bukan akun.
 
-## API backend
+## API
 
 | Endpoint | Fungsi |
 |---|---|
@@ -199,29 +200,34 @@ Batas wilayah BPS via OCHA (offline) ──┘     fire_pipeline/
 | `GET /api/reports/{id}` | Lengkap untuk pelapor/petugas; bentuk publik untuk laporan terverifikasi; 404 untuk yang lain |
 | `PATCH /api/reports/{id}` | Ubah status, petugas saja |
 | `GET /api/reports/{id}/photo` | Foto, pelapor dan petugas saja |
-| `GET`, `POST /api/operations/incidents` | Antrean insiden dan pembuatan insiden dari satelit/laporan warga, petugas saja |
+| `GET`, `POST /api/operations/incidents` | Next.js + Supabase: antrean insiden dan pembuatan insiden dari satelit/laporan warga, petugas saja |
 | `GET`, `PATCH /api/operations/incidents/{id}` | Detail + timeline, serta verifikasi/prioritas/assignment/progres dengan optimistic locking |
 | `GET`, `POST /api/operations/teams` | Daftar dan pembuatan tim lapangan |
 | `GET /api/operations/notifications` | Notifikasi perubahan operasional terbaru |
 
-Dokumentasi Swagger tersedia di `http://127.0.0.1:8000/docs` saat backend berjalan.
+Dokumentasi Swagger untuk endpoint Python tersedia di `http://127.0.0.1:8000/docs` saat backend berjalan. Endpoint `/api/operations/*` adalah route Next.js yang memakai Supabase langsung.
 
 ## Menjalankan di komputer sendiri
 
-Yang dibutuhkan: Node.js 20+, Python 3.12+, dan Map Key NASA FIRMS (gratis, daftar di [firms.modaps.eosdis.nasa.gov/api/area](https://firms.modaps.eosdis.nasa.gov/api/area/)).
+Yang dibutuhkan: Node.js 20+, Python 3.12+, Docker, dan Map Key NASA FIRMS (gratis, daftar di [firms.modaps.eosdis.nasa.gov/api/area](https://firms.modaps.eosdis.nasa.gov/api/area/)).
 
 ```bash
 npm install
 python3.12 -m venv python-service/.venv
 python-service/.venv/bin/pip install -r python-service/requirements.txt
-cp .env.example .env.local     # isi NASA_FIRMS_MAP_KEY dan OFFICER_ACCESS_KEY
+cp .env.example .env.local
+npm run supabase:start
+npm run supabase:reset
+npx supabase status -o env     # salin API_URL + PUBLISHABLE_KEY ke .env.local
 ```
+
+Seed lokal membuat akun `officer@firewatch.local` / `FireWatchLocal123!` dengan role admin. Akun ini hanya untuk komputer lokal; seed hosted harus memakai identitas bernama dan password berbeda.
 
 Lalu jalankan dua terminal:
 
 ```bash
-# backend
-OFFICER_ACCESS_KEY=<sama dengan di .env.local> python-service/.venv/bin/python -m uvicorn main:app --app-dir python-service --host 127.0.0.1 --port 8000
+# backend (nilai bridge sama dengan OFFICER_ACCESS_KEY di .env.local)
+OFFICER_ACCESS_KEY=<server-bridge-key> python-service/.venv/bin/python -m uvicorn main:app --app-dir python-service --host 127.0.0.1 --port 8000
 
 # frontend
 npm run dev -- --hostname 127.0.0.1 --port 3000
@@ -259,9 +265,11 @@ Kalau file ini tidak ada, aplikasi tetap jalan dan lokasi ditampilkan sebagai ko
 ### Test
 
 ```bash
-cd python-service && .venv/bin/python -m pytest          # 138 test produksi
+cd python-service && .venv/bin/python -m pytest          # 130 test produksi
 .venv/bin/python -m pytest ml_experiments                # 22 test riset (terpisah dari produksi)
-cd .. && npm run lint && npm run build
+cd .. && npm run supabase:test                           # 22 tes pgTAP/RLS
+npm run lint && npm run build
+npm run test:e2e                                         # stack lokal + server harus hidup
 ```
 
 Panduan deploy (Render + Vercel, Docker) ada di [DEPLOY.md](DEPLOY.md).
@@ -275,10 +283,11 @@ src/components/map/       FireMap (★ MODIS, ⬡ VIIRS, 🔥 terharmonisasi, �
                           AoiDrawMap (gambar area sendiri)
 src/lib/                  filter wilayah & waktu, hook data live, i18n,
                           calendarSeries (bulan live, bulan tidak biasa, periode kritis, CSV),
-                          aoiPolygon (area gambar sendiri)
+                          aoiPolygon, session petugas, Supabase DAL/RPC adapter
+supabase/                 config lokal, migration Postgres/RLS/RPC, seed, tes pgTAP
 python-service/
   fire_pipeline/          clean, matching, harmonize_events, features, model, live,
-                          historical, live_calendar, reports, operations, correlation, weather, admin_lookup
+                          historical, live_calendar, reports, correlation, weather, admin_lookup
   scripts/                build_historical_store.py, build_admin_boundaries.py
   ml_experiments/         riset terpisah: anomaly_detection/, matching_audit/, audit_2026_10/
   tests/                  test produksi
@@ -298,7 +307,7 @@ python-service/
 - **Tanggal di arsip memakai UTC,** bukan WIB.
 - **Skor prioritas belum divalidasi** bersama Manggala Agni atau BPBD.
 - **Kualitas udara memakai US AQI, bukan ISPU Indonesia.** Ambang batas kedua skala berbeda.
-- **Login petugas masih satu kode bersama,** belum akun dan kredensial per orang. Timeline insiden mencatat nama dari sesi yang cookie-nya ditandatangani, tetapi nama itu tetap deklarasi petugas saat login—bukan identitas yang diverifikasi oleh akun individual. `reports.sqlite` akan hilang kalau dijalankan di server tanpa disk tetap (`render.yaml` sudah memasang Render Disk).
+- **Laporan warga dan foto masih berada di disk Python lokal.** Supabase sudah menjadi sumber data akun dan operasi, tetapi `reports.sqlite` serta folder foto tetap membutuhkan disk persisten bila nanti di-host. Migrasi laporan/foto ke Supabase Storage belum dilakukan.
 - **Token pelapor ada di URL foto** (`?submitterToken=`), karena tag `<img>` tidak bisa mengirim header. Token itu hanya membuka laporan milik pelapor sendiri.
 - **Peringatan dini belum dikirim sebagai push notification.** Halaman Notifikasi baru menyaring data saat aplikasi dibuka.
 

@@ -1,16 +1,12 @@
-import { proxyOperationsRequest, readJsonBody } from "@/lib/operationsProxy";
+import { createOperationTeam, listOperationTeams } from "@/lib/operationsData";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  return proxyOperationsRequest(request, "/api/operations/teams");
+  void request;
+  return listOperationTeams();
 }
 
 export async function POST(request: Request) {
-  const body = await readJsonBody(request);
-  if (!body.ok) return body.response;
-  return proxyOperationsRequest(request, "/api/operations/teams", {
-    method: "POST",
-    payload: body.payload,
-  });
+  return createOperationTeam(request);
 }

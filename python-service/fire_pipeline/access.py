@@ -1,10 +1,9 @@
-"""Officer access check and a small submission rate limiter.
+"""Server-to-server report access and a small submission rate limiter.
 
-Officer access is a single shared passcode (OFFICER_ACCESS_KEY), the same
-value configured on the Next.js frontend. The frontend only forwards it, as
-the X-Officer-Key header, for browsers that signed in on /officer-login.
-This is deliberately simple (hackathon scope, no user accounts), but it
-fails CLOSED: when OFFICER_ACCESS_KEY is not set, nobody is an officer.
+Supabase Auth validates named officer accounts in Next.js. Only after that
+check does the Next.js server forward OFFICER_ACCESS_KEY as X-Officer-Key to
+private Python report endpoints. The value is a backend bridge credential,
+not a browser login password. It fails closed when the key is unset.
 """
 
 from __future__ import annotations

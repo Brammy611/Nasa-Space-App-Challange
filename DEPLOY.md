@@ -1,12 +1,13 @@
 # Deploy AGNIBHŪMĪ (demo publik untuk juri)
 
-Arsitektur: **Next.js di Vercel** (frontend + route `/api/*` sebagai proxy) → **FastAPI di Render** (Docker, `python-service/`).
+Arsitektur: **Next.js di Vercel** + **Supabase Auth/Postgres** untuk akun dan operasi → **FastAPI di Render** untuk pipeline NASA dan laporan warga.
 Kunci NASA FIRMS hanya disimpan di server, tidak pernah dikirim ke browser.
 
 ## 0. Yang perlu disiapkan pemilik repo
 - Akun Vercel dan Render (keduanya bisa login dengan GitHub).
 - `NASA_FIRMS_MAP_KEY` — kunci yang sama dengan di `.env.local`.
-- `OFFICER_ACCESS_KEY` — kode akses petugas, string acak panjang (`python3 -c "import secrets; print(secrets.token_urlsafe(24))"`). Nilainya **harus sama** di Render dan Vercel.
+- Project Supabase dengan migration pada folder `supabase/` sudah diterapkan.
+- `OFFICER_ACCESS_KEY` — kredensial bridge server-ke-server, string acak panjang (`python3 -c "import secrets; print(secrets.token_urlsafe(24))"`). Nilainya **harus sama** di Render dan Vercel, tetapi tidak diberikan kepada petugas.
 - **Keputusan soal file data** (lihat langkah 1). Repo ini sengaja belum di-push; semua langkah di bawah menunggu izin pemilik.
 
 ## 1. File data (wajib ada di image backend)
@@ -44,7 +45,9 @@ Render membangun image dari Git, jadi kedua file harus ikut ter-commit. Pilihan:
 2. Environment variables:
    - `PYTHON_PROCESSING_API_URL` = URL Render dari langkah 2 (tanpa `/` di akhir)
    - `NASA_FIRMS_MAP_KEY` = kunci FIRMS
-   - `OFFICER_ACCESS_KEY` = nilai yang sama dengan di Render
+   - `OFFICER_ACCESS_KEY` = nilai bridge yang sama dengan di Render
+   - `NEXT_PUBLIC_SUPABASE_URL` = Project URL Supabase
+   - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` = publishable key Supabase
 3. Deploy. Route `/api/hotspots` memakai `maxDuration = 60`; berkat cache warmer, permintaan biasanya selesai < 1 detik.
 
 ## 4. Cek setelah deploy
@@ -52,14 +55,14 @@ Render membangun image dari Git, jadi kedua file harus ikut ter-commit. Pilihan:
 - `/operator` → pilih Region = Kalimantan Tengah, Time Range = 7 Hari → pindah ke `/map`, filter tetap.
 - `/calendar` → persempit area ke satu kabupaten lewat kotak "Area analisis".
 - `/community` → atur lokasi dengan mencari nama kecamatan → status, titik terdekat, filter searah angin.
-- `/community/report` → kirim laporan uji → buka `/citizen-reports` → diarahkan ke `/officer-login` → masuk dengan `OFFICER_ACCESS_KEY` → laporan muncul.
+- `/community/report` → kirim laporan uji → buka `/citizen-reports` → diarahkan ke `/officer-login` → masuk dengan akun Supabase petugas aktif → laporan muncul.
 - Ubah status laporan uji ke **Terverifikasi** → laporan muncul di "Laporan warga terdekat" di `/community` dengan lokasi dibulatkan, tanpa foto.
 - `/incidents` → tambahkan satu tim → buka insiden dari laporan uji atau kandidat satelit → simpan verifikasi, prioritas, penugasan, dan progres dengan alasan → pastikan timeline dan notifikasi bertambah.
-- Muat ulang `/incidents` dan restart backend satu kali → insiden/tim/timeline tetap ada di Render Disk yang sama dengan `reports.sqlite`.
+- Muat ulang `/incidents` dan restart backend satu kali → insiden/tim/timeline tetap ada di Supabase; laporan warga tetap ada di Render Disk.
 
 ## Keterbatasan yang harus disebut ke juri
 - **Laporan warga disimpan di SQLite pada Render Disk.** Cukup untuk demo; untuk produksi sebaiknya Postgres hosted dan object storage untuk foto.
-- **Login petugas memakai satu kode akses bersama**, bukan akun per orang. Timeline insiden mencatat nama sesi yang ditandatangani, tetapi nama itu masih deklarasi petugas saat login.
+- **Akun petugas memakai Supabase Auth dan role pada `public.profiles`.** Provisioning/approval akun hosted tetap harus dilakukan oleh administrator yang berwenang.
 - **Suomi-NPP berhenti mengirim data VIIRS baru per 2 Nov 2026**; pipeline live tetap jalan dengan NOAA-20/21.
 
 ## Uji image Docker secara lokal

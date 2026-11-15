@@ -35,10 +35,10 @@ const FireMap = dynamic(() => import("@/components/map/FireMap"), { ssr: false }
  *     `satelliteLinks` (only the single-report detail fetch includes it), so that correlation is
  *     now shown in the detail panel once a report is selected, not guessed at in the table.
  *
- * Access: this page is officer-only. src/proxy.ts redirects visitors without the officer
- * cookie to /officer-login, and the report API routes plus the Python backend check it again
- * (OFFICER_ACCESS_KEY). If the session expires mid-use, any 401 sends the officer back to the
- * login page instead of showing an empty list.
+ * Access: this page is officer-only. src/proxy.ts refreshes/checks the Supabase session and
+ * redirects anonymous visitors to /officer-login. Route handlers validate the Supabase user
+ * again before attaching the server-only Python bridge key. If the session expires mid-use,
+ * any 401 sends the officer back to the login page instead of showing an empty list.
  */
 
 const STATUS_ORDER: ReportStatus[] = ["submitted", "under_review", "satellite_matched", "verified", "rejected"];

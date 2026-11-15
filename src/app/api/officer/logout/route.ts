@@ -1,10 +1,13 @@
-import { OFFICER_COOKIE } from "@/lib/officerAuth";
+import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
 export async function POST() {
-  return Response.json(
-    { ok: true },
-    { headers: { "Set-Cookie": `${OFFICER_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`, "Cache-Control": "no-store" } }
-  );
+  try {
+    const supabase = await createClient();
+    await supabase.auth.signOut();
+  } catch {
+    // Logout remains idempotent if Auth is temporarily unavailable.
+  }
+  return Response.json({ ok: true }, { headers: { "Cache-Control": "private, no-store" } });
 }

@@ -1,7 +1,8 @@
-import { proxyOperationsRequest } from "@/lib/operationsProxy";
+import { listOperationNotifications } from "@/lib/operationsData";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  return proxyOperationsRequest(request, "/api/operations/notifications");
+  void request;
+  return listOperationNotifications();
 }

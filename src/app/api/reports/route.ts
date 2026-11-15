@@ -26,7 +26,7 @@ export async function GET(request: Request) {
 
   try {
     const upstream = await fetch(upstreamUrl, {
-      headers: backendHeaders(request),
+      headers: await backendHeaders(request),
       cache: "no-store",
       signal: AbortSignal.timeout(30_000),
     });
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
   try {
     const upstream = await fetch(`${PYTHON_API}/api/reports`, {
       method: "POST",
-      headers: backendHeaders(request, { "Content-Type": "application/json" }),
+      headers: await backendHeaders(request, { "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
       signal: AbortSignal.timeout(30_000),
